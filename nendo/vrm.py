@@ -128,6 +128,85 @@ class Vrm:
             ]
         return self._vrm_root.get("materialProperties", [])
 
+    # ---- FirstPerson ----
+
+    @property
+    def first_person(self) -> dict[str, Any]:
+        if self._version == VrmVersion.V1:
+            return self._vrm_root.get("firstPerson", {})
+        return self._vrm_root.get("firstPerson", {})
+
+    @first_person.setter
+    def first_person(self, value: dict[str, Any]) -> None:
+        if self._version == VrmVersion.V1:
+            self.extensions.setdefault("VRMC_vrm", {})["firstPerson"] = value
+        elif self._version == VrmVersion.V0:
+            self.extensions.setdefault("VRM", {})["firstPerson"] = value
+
+    # ---- LookAt ----
+
+    @property
+    def look_at(self) -> dict[str, Any]:
+        if self._version == VrmVersion.V1:
+            return self._vrm_root.get("lookAt", {})
+        return self._vrm_root.get("firstPerson", {}).get("lookAtTypeName", "")
+
+    @look_at.setter
+    def look_at(self, value: dict[str, Any]) -> None:
+        if self._version == VrmVersion.V1:
+            self.extensions.setdefault("VRMC_vrm", {})["lookAt"] = value
+        elif self._version == VrmVersion.V0:
+            fp = self.extensions.setdefault("VRM", {}).setdefault("firstPerson", {})
+            fp.update(value)
+
+    # ---- Node Constraints (VRM 1.0) ----
+
+    @property
+    def constraints(self) -> list[dict[str, Any]]:
+        """Return nodes that have VRMC_node_constraint extensions."""
+        result = []
+        for i, node in enumerate(self.nodes):
+            c = node.get("extensions", {}).get("VRMC_node_constraint", {}).get("constraint")
+            if c:
+                result.append({"node": i, "name": node.get("name", ""), **c})
+        return result
+
+    # ---- MToon Materials (detailed) ----
+
+    @property
+    def mtoon_materials(self) -> list[dict[str, Any]]:
+        """Return all materials with their MToon properties merged."""
+        all_mats = self.glb.json_data.get("materials", [])
+        result = []
+        if self._version == VrmVersion.V1:
+            for i, m in enumerate(all_mats):
+                mtoon = m.get("extensions", {}).get("VRMC_materials_mtoon")
+                if mtoon:
+                    result.append({
+                        "index": i,
+                        "name": m.get("name", ""),
+                        "pbr": m.get("pbrMetallicRoughness", {}),
+                        "mtoon": mtoon,
+                    })
+        elif self._version == VrmVersion.V0:
+            for i, mp in enumerate(self._vrm_root.get("materialProperties", [])):
+                result.append({
+                    "index": i,
+                    "name": mp.get("name", ""),
+                    "shader": mp.get("shader", ""),
+                    "floatProperties": mp.get("floatProperties", {}),
+                    "vectorProperties": mp.get("vectorProperties", {}),
+                    "textureProperties": mp.get("textureProperties", {}),
+                    "keywordMap": mp.get("keywordMap", {}),
+                    "tagMap": mp.get("tagMap", {}),
+                })
+        return result
+
+    @property
+    def all_materials(self) -> list[dict[str, Any]]:
+        """Return all glTF materials with full properties."""
+        return self.glb.json_data.get("materials", [])
+
     # ---- Node tree ----
 
     @property
@@ -159,6 +238,10 @@ class Vrm:
             "human_bones": len(self.human_bones),
             "expressions": self._count_expressions(),
             "spring_bone_groups": self._count_spring_bones(),
+            "mtoon_materials": len(self.mtoon_materials),
+            "first_person": bool(self.first_person),
+            "look_at": bool(self.look_at),
+            "constraints": len(self.constraints),
         }
 
     def _count_expressions(self) -> int:

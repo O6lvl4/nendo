@@ -64,6 +64,10 @@ def inspect(
     _print_bones(vrm)
     _print_expressions(vrm)
     _print_spring_bones(vrm)
+    _print_first_person(vrm)
+    _print_look_at(vrm)
+    _print_mtoon(vrm)
+    _print_constraints(vrm)
     console.print()
 
 
@@ -286,6 +290,89 @@ def _print_spring_bones(vrm: Vrm) -> None:
             )
 
 
+def _print_first_person(vrm: Vrm) -> None:
+    fp = vrm.first_person
+    if not fp:
+        return
+    console.print("\n[bold]First Person[/bold]")
+    if vrm.version == VrmVersion.V1:
+        for ann in fp.get("meshAnnotations", []):
+            console.print(f"  mesh {ann.get('node', '?')}: {ann.get('type', '?')}")
+    else:
+        bone = fp.get("firstPersonBone")
+        offset = fp.get("firstPersonBoneOffset", {})
+        if bone is not None:
+            console.print(f"  bone: {bone}, offset: ({offset.get('x',0):.2f}, {offset.get('y',0):.2f}, {offset.get('z',0):.2f})")
+        for ann in fp.get("meshAnnotations", []):
+            console.print(f"  mesh {ann.get('mesh', '?')}: {ann.get('firstPersonFlag', '?')}")
+
+
+def _print_look_at(vrm: Vrm) -> None:
+    if vrm.version == VrmVersion.V1:
+        la = vrm._vrm_root.get("lookAt", {})
+        if not la:
+            return
+        console.print("\n[bold]LookAt[/bold]")
+        console.print(f"  type: {la.get('type', '?')}")
+        console.print(f"  offsetFromHeadBone: {la.get('offsetFromHeadBone', [0,0,0])}")
+        for key in ("rangeMapHorizontalInner", "rangeMapHorizontalOuter", "rangeMapVerticalDown", "rangeMapVerticalUp"):
+            rm = la.get(key, {})
+            if rm:
+                console.print(f"  {key}: input={rm.get('inputMaxValue','?')}, output={rm.get('outputScale','?')}")
+    else:
+        fp = vrm._vrm_root.get("firstPerson", {})
+        look_type = fp.get("lookAtTypeName")
+        if look_type:
+            console.print("\n[bold]LookAt[/bold]")
+            console.print(f"  type: {look_type}")
+            for key in ("lookAtHorizontalInner", "lookAtHorizontalOuter", "lookAtVerticalDown", "lookAtVerticalUp"):
+                la = fp.get(key, {})
+                if la:
+                    console.print(f"  {key}: curve={la.get('curve', [])}, x={la.get('xRange','?')}, y={la.get('yRange','?')}")
+
+
+def _print_mtoon(vrm: Vrm) -> None:
+    mats = vrm.mtoon_materials
+    if not mats:
+        return
+    console.print(f"\n[bold]MToon Materials ({len(mats)})[/bold]")
+    for m in mats:
+        console.print(f"  [cyan]{m.get('name', '?')}[/cyan]")
+        if vrm.version == VrmVersion.V1:
+            mt = m.get("mtoon", {})
+            for k in ("shadeColorFactor", "shadeMultiplyTexture", "shadingShiftFactor",
+                       "shadingToonyFactor", "matcapFactor", "matcapTexture",
+                       "parametricRimColorFactor", "parametricRimFresnelPowerFactor",
+                       "outlineWidthMode", "outlineWidthFactor", "outlineColorFactor",
+                       "uvAnimationScrollXSpeedFactor", "uvAnimationScrollYSpeedFactor",
+                       "uvAnimationRotationSpeedFactor"):
+                v = mt.get(k)
+                if v is not None:
+                    console.print(f"    {k}: {v}")
+        else:
+            vp = m.get("vectorProperties", {})
+            for k, v in vp.items():
+                if any(x in k for x in ("Color", "color")):
+                    console.print(f"    {k}: {v}")
+            fp = m.get("floatProperties", {})
+            for k in ("_ShadeShift", "_ShadeToony", "_OutlineWidth", "_OutlineWidthMode",
+                       "_RimFresnelPower", "_RimLift", "_UvAnimScrollX", "_UvAnimScrollY", "_UvAnimRotation"):
+                v = fp.get(k)
+                if v is not None:
+                    console.print(f"    {k}: {v}")
+
+
+def _print_constraints(vrm: Vrm) -> None:
+    constraints = vrm.constraints
+    if not constraints:
+        return
+    console.print(f"\n[bold]Node Constraints ({len(constraints)})[/bold]")
+    for c in constraints:
+        ctype = "roll" if "roll" in c else "aim" if "aim" in c else "rotation" if "rotation" in c else "?"
+        detail = c.get(ctype, {})
+        console.print(f"  {c.get('name', '?')}: {ctype} (source={detail.get('source','?')}, weight={detail.get('weight','?')})")
+
+
 # ---- blender subcommands ----
 
 
@@ -358,6 +445,28 @@ def blender_convert(
         raise typer.Exit(1)
 
     console.print(f"[green]Saved to {output_file}[/green]")
+
+
+# ---- migrate ----
+
+
+@app.command()
+def migrate(
+    file: Path = typer.Argument(..., help="Path to VRM 0.x file"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output path (default: <name>.v1.vrm)"),
+) -> None:
+    """Migrate VRM 0.x to VRM 1.0."""
+    from nendo.migrate import migrate_0_to_1
+
+    vrm = Vrm.load(file)
+    if vrm.version != VrmVersion.V0:
+        console.print(f"[yellow]Already VRM {vrm.version.value}, nothing to migrate[/yellow]")
+        return
+
+    migrate_0_to_1(vrm)
+    out_path = output or file.with_suffix(".v1.vrm")
+    vrm.save(out_path)
+    console.print(f"[green]Migrated to VRM 1.0: {out_path}[/green]")
 
 
 # ---- editor ----
