@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vrm-kit editor</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --panel: #16213e;
+  --border: #334;
+  --text: #e0e0e0;
+  --accent: #0f9;
+  --accent2: #4cc9f0;
+  --dim: #888;
+  --input-bg: #0f3460;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+}
+#viewport {
+  flex: 1;
+  position: relative;
+}
+canvas { display: block; width: 100%; height: 100%; }
+
+/* Side panel */
+#panel {
+  width: 340px;
+  min-width: 300px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.panel-header {
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  flex: 1;
+  padding: 8px;
+  text-align: center;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  color: var(--dim);
+  transition: all 0.15s;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+  color: var(--accent2);
+  border-bottom-color: var(--accent2);
+}
+.tab-content { display: none; flex: 1; overflow-y: auto; }
+.tab-content.active { display: block; }
+
+/* Sections */
+.section {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+}
+.section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+
+/* Form controls */
+.field {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+.field label {
+  min-width: 90px;
+  font-size: 12px;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+.field input[type="text"],
+.field select {
+  flex: 1;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.field input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent2);
+}
+
+/* Sliders */
+.slider-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+  gap: 6px;
+}
+.slider-row label {
+  min-width: 120px;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+.slider-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 4px;
+}
+.slider-row .val {
+  min-width: 32px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+/* Expression search */
+#expr-search {
+  width: 100%;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+#expr-search:focus { outline: none; border-color: var(--accent2); }
+
+/* Buttons */
+.btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.btn:hover { border-color: var(--accent2); color: var(--accent2); }
+.btn.primary {
+  background: var(--accent2);
+  color: #000;
+  border-color: var(--accent2);
+}
+.btn.primary:hover { opacity: 0.85; }
+.btn-row { display: flex; gap: 8px; padding: 10px 16px; }
+
+/* Pose buttons */
+.pose-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.pose-btn {
+  padding: 6px 4px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  text-align: center;
+}
+.pose-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pose-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,255,153,0.1); }
+
+/* Status bar */
+#status {
+  padding: 6px 16px;
+  font-size: 11px;
+  color: var(--dim);
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: #000;
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.3s;
+  z-index: 100;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+
+/* Responsive */
+@media (max-width: 800px) {
+  body { flex-direction: column; }
+  #viewport { height: 50vh; }
+  #panel { width: 100%; height: 50vh; }
+}
+</style>
+</head>
+<body>
+
+<div id="viewport">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div id="panel">
+  <div class="panel-header">vrm-kit editor</div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="expressions">Expressions</div>
+    <div class="tab" data-tab="meta">Meta</div>
+    <div class="tab" data-tab="pose">Pose</div>
+    <div class="tab" data-tab="view">View</div>
+  </div>
+
+  <!-- Expressions tab -->
+  <div id="tab-expressions" class="tab-content active">
+    <div class="section">
+      <input type="text" id="expr-search" placeholder="Search expressions...">
+      <div class="btn-row" style="padding:0 0 8px 0">
+        <button class="btn" id="reset-all-expr">Reset All</button>
+      </div>
+      <div id="expr-sliders"></div>
+    </div>
+  </div>
+
+  <!-- Meta tab -->
+  <div id="tab-meta" class="tab-content">
+    <div class="section">
+      <div class="section-title">Basic Info</div>
+      <div id="meta-fields"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn primary" id="save-meta">Save Meta</button>
+    </div>
+  </div>
+
+  <!-- Pose tab -->
+  <div id="tab-pose" class="tab-content">
+    <div class="section">
+      <div class="section-title">Presets</div>
+      <div class="pose-grid" id="pose-grid"></div>
+    </div>
+  </div>
+
+  <!-- View tab -->
+  <div id="tab-view" class="tab-content">
+    <div class="section">
+      <div class="section-title">Camera</div>
+      <div class="pose-grid">
+        <button class="pose-btn" data-view="front">Front</button>
+        <button class="pose-btn" data-view="face">Face</button>
+        <button class="pose-btn" data-view="side">Side</button>
+        <button class="pose-btn" data-view="back">Back</button>
+        <button class="pose-btn" data-view="top">Top</button>
+        <button class="pose-btn" data-view="full">Full Body</button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Background</div>
+      <div class="slider-row">
+        <label>Brightness</label>
+        <input type="range" id="bg-brightness" min="0" max="100" value="10">
+        <span class="val" id="bg-brightness-val">10</span>
+      </div>
+      <div class="field">
+        <label>Grid</label>
+        <input type="checkbox" id="show-grid" checked>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Lighting</div>
+      <div class="slider-row">
+        <label>Intensity</label>
+        <input type="range" id="light-intensity" min="0" max="300" value="100">
+        <span class="val" id="light-intensity-val">1.0</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="status">Loading...</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.3.3/lib/three-vrm.module.min.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as VRMModule from '@pixiv/three-vrm';
+
+const { VRMLoaderPlugin, VRMUtils } = VRMModule;
+
+// ---- State ----
+let vrm = null;
+let mixer = null;
+const clock = new THREE.Clock();
+
+// ---- Three.js setup ----
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+camera.position.set(0, 1.3, -2.5);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 1.0, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.1;
+controls.update();
+
+// Lights
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+dirLight.position.set(1, 2, -3);
+scene.add(dirLight);
+const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambLight);
+
+// Grid
+const grid = new THREE.GridHelper(10, 20, 0x334, 0x223);
+scene.add(grid);
+
+// ---- Resize ----
+function resize() {
+  const vp = document.getElementById('viewport');
+  const w = vp.clientWidth;
+  const h = vp.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---- Load VRM ----
+const loader = new GLTFLoader();
+loader.register((parser) => new VRMLoaderPlugin(parser));
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+async function loadVRM() {
+  setStatus('Loading VRM...');
+  const resp = await fetch('/api/vrm');
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+
+  loader.load(url, (gltf) => {
+    if (vrm) {
+      VRMUtils.deepDispose(vrm.scene);
+      scene.remove(vrm.scene);
+    }
+
+    vrm = gltf.userData.vrm;
+    VRMUtils.rotateVRM0(vrm);
+    scene.add(vrm.scene);
+
+    mixer = new THREE.AnimationMixer(vrm.scene);
+
+    // Auto-center camera on model
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    controls.target.copy(center);
+    camera.position.set(center.x, center.y + size.y * 0.15, center.z - size.y * 1.5);
+    controls.update();
+
+    URL.revokeObjectURL(url);
+
+    buildExpressionSliders();
+    buildPoseButtons();
+    loadMeta();
+
+    const s = `${vrm.meta?.metaVersion || 'VRM'} loaded`;
+    setStatus(s);
+  }, (progress) => {
+    if (progress.total) {
+      const pct = Math.round((progress.loaded / progress.total) * 100);
+      setStatus(`Loading... ${pct}%`);
+    }
+  }, (err) => {
+    setStatus(`Error: ${err.message}`);
+    console.error(err);
+  });
+}
+
+// ---- Expressions ----
+function buildExpressionSliders() {
+  const container = document.getElementById('expr-sliders');
+  container.innerHTML = '';
+  if (!vrm?.expressionManager) return;
+
+  const names = vrm.expressionManager.expressions.map(e => e.expressionName);
+  names.sort();
+
+  for (const name of names) {
+    const row = document.createElement('div');
+    row.className = 'slider-row expr-row';
+    row.dataset.name = name.toLowerCase();
+
+    const label = document.createElement('label');
+    label.textContent = name;
+    label.title = name;
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '0';
+    slider.max = '100';
+    slider.value = '0';
+
+    const val = document.createElement('span');
+    val.className = 'val';
+    val.textContent = '0';
+
+    slider.addEventListener('input', () => {
+      const v = parseInt(slider.value) / 100;
+      vrm.expressionManager.setValue(name, v);
+      val.textContent = slider.value;
+    });
+
+    row.append(label, slider, val);
+    container.appendChild(row);
+  }
+}
+
+// Search
+document.getElementById('expr-search').addEventListener('input', (e) => {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('.expr-row').forEach(row => {
+    row.style.display = row.dataset.name.includes(q) ? '' : 'none';
+  });
+});
+
+// Reset all
+document.getElementById('reset-all-expr').addEventListener('click', () => {
+  if (!vrm?.expressionManager) return;
+  for (const expr of vrm.expressionManager.expressions) {
+    vrm.expressionManager.setValue(expr.expressionName, 0);
+  }
+  document.querySelectorAll('.expr-row input[type="range"]').forEach(s => {
+    s.value = '0';
+    s.nextElementSibling.textContent = '0';
+  });
+});
+
+// ---- Meta ----
+const META_FIELDS_V0 = [
+  'title', 'author', 'version', 'contactInformation', 'reference',
+  'licenseName', 'otherLicenseUrl', 'allowedUserName',
+  'commercialUssageName', 'violentUssageName', 'sexualUssageName',
+];
+const META_FIELDS_V1 = [
+  'name', 'authors', 'version', 'copyrightInformation', 'contactInformation',
+  'licenseUrl', 'avatarPermission', 'commercialUsage',
+];
+
+async function loadMeta() {
+  const resp = await fetch('/api/meta');
+  const meta = await resp.json();
+  const container = document.getElementById('meta-fields');
+  container.innerHTML = '';
+
+  const fields = Object.keys(meta);
+  for (const key of fields) {
+    const val = meta[key];
+    const div = document.createElement('div');
+    div.className = 'field';
+
+    const label = document.createElement('label');
+    label.textContent = key;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.dataset.key = key;
+    input.value = Array.isArray(val) ? val.join(', ') : (val ?? '');
+
+    div.append(label, input);
+    container.appendChild(div);
+  }
+}
+
+document.getElementById('save-meta').addEventListener('click', async () => {
+  const inputs = document.querySelectorAll('#meta-fields input');
+  const meta = {};
+  inputs.forEach(input => {
+    const key = input.dataset.key;
+    const val = input.value;
+    if (key === 'authors') {
+      meta[key] = val.split(',').map(s => s.trim()).filter(Boolean);
+    } else if (key === 'texture' || key === 'thumbnailImage') {
+      meta[key] = parseInt(val) || 0;
+    } else {
+      meta[key] = val;
+    }
+  });
+
+  const resp = await fetch('/api/meta', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta),
+  });
+  if (resp.ok) {
+    showToast('Meta saved');
+  } else {
+    showToast('Save failed');
+  }
+});
+
+// ---- Pose ----
+const POSES = {
+  'T-Pose': null, // default
+  'A-Pose': (vrm) => {
+    const ra = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
+    const la = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
+    if (ra) ra.rotation.z = Math.PI / 6;
+    if (la) la.rotation.z = -Math.PI / 6;
+  },
+  'Rest': (vrm) => {
+    const ra = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
+    const la = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
+    const rl = vrm.humanoid?.getNormalizedBoneNode('rightLowerArm');
+    const ll = vrm.humanoid?.getNormalizedBoneNode('leftLowerArm');
+    if (ra) ra.rotation.z = Math.PI / 3;
+    if (la) la.rotation.z = -Math.PI / 3;
+    if (rl) rl.rotation.z = Math.PI / 8;
+    if (ll) ll.rotation.z = -Math.PI / 8;
+  },
+};
+
+function buildPoseButtons() {
+  const container = document.getElementById('pose-grid');
+  container.innerHTML = '';
+  for (const [name, fn] of Object.entries(POSES)) {
+    const btn = document.createElement('button');
+    btn.className = 'pose-btn';
+    btn.textContent = name;
+    btn.addEventListener('click', () => {
+      resetPose();
+      if (fn) fn(vrm);
+      container.querySelectorAll('.pose-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+    container.appendChild(btn);
+  }
+}
+
+function resetPose() {
+  if (!vrm?.humanoid) return;
+  vrm.humanoid.resetNormalizedPose();
+}
+
+// ---- Camera views ----
+document.querySelectorAll('[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!vrm) return;
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+
+    const views = {
+      front: () => {
+        controls.target.set(center.x, center.y, center.z);
+        camera.position.set(center.x, center.y, center.z - size.y * 1.2);
+      },
+      face: () => {
+        const headY = center.y + size.y * 0.35;
+        controls.target.set(center.x, headY, center.z);
+        camera.position.set(center.x, headY, center.z - 0.6);
+      },
+      side: () => {
+        controls.target.set(center.x, center.y, center.z);
+        camera.position.set(center.x - size.y * 1.2, center.y, center.z);
+      },
+      back: () => {
+        controls.target.set(center.x, center.y, center.z);
+        camera.position.set(center.x, center.y, center.z + size.y * 1.2);
+      },
+      top: () => {
+        controls.target.set(center.x, center.y, center.z);
+        camera.position.set(center.x, center.y + size.y * 1.5, center.z - 0.01);
+      },
+      full: () => {
+        controls.target.set(center.x, center.y, center.z);
+        camera.position.set(center.x, center.y + size.y * 0.15, center.z - size.y * 1.5);
+      },
+    };
+    const fn = views[btn.dataset.view];
+    if (fn) fn();
+    controls.update();
+  });
+});
+
+// ---- View controls ----
+document.getElementById('bg-brightness').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value) / 100;
+  scene.background = new THREE.Color(v * 0.3, v * 0.3, v * 0.35);
+  document.getElementById('bg-brightness-val').textContent = e.target.value;
+});
+
+document.getElementById('show-grid').addEventListener('change', (e) => {
+  grid.visible = e.target.checked;
+});
+
+document.getElementById('light-intensity').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value) / 100;
+  dirLight.intensity = v;
+  document.getElementById('light-intensity-val').textContent = v.toFixed(1);
+});
+
+// ---- Tabs ----
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+  });
+});
+
+// ---- Render loop ----
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+
+  if (vrm) {
+    vrm.update(dt);
+  }
+  if (mixer) {
+    mixer.update(dt);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ---- Start ----
+loadVRM();
+animate();
+</script>
+</body>
+</html>

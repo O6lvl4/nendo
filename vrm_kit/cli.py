@@ -360,5 +360,22 @@ def blender_convert(
     console.print(f"[green]Saved to {output_file}[/green]")
 
 
+# ---- editor ----
+
+
+@app.command()
+def editor(
+    file: Path = typer.Argument(..., help="Path to .vrm file"),
+    port: int = typer.Option(8765, "--port", "-p", help="Server port"),
+) -> None:
+    """Open visual editor in browser (three-vrm powered)."""
+    import webbrowser
+
+    from vrm_kit.editor.server import start_server
+
+    webbrowser.open(f"http://localhost:{port}")
+    start_server(file, port=port)
+
+
 def main() -> None:
     app()
