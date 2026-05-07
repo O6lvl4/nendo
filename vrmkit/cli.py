@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
 
-from vrm_kit.vrm import Vrm, VrmVersion
+from vrmkit.vrm import Vrm, VrmVersion
 
 app = typer.Typer(name="vrm-kit", help="VRM avatar file toolkit")
 blender_app = typer.Typer(help="Blender-powered operations (requires Blender)")
@@ -294,7 +294,7 @@ def blender_info(
     file: Path = typer.Argument(..., help="Path to .vrm file"),
 ) -> None:
     """Deep inspection via Blender (vertex counts, shape keys, bone positions)."""
-    from vrm_kit.blender import run_script_json
+    from vrmkit.blender import run_script_json
 
     with console.status("Running Blender..."):
         data = run_script_json("export_info.py", [str(file)], timeout=120)
@@ -341,7 +341,7 @@ def blender_convert(
     author: str = typer.Option("", help="VRM author"),
 ) -> None:
     """Convert FBX/OBJ to VRM via Blender."""
-    from vrm_kit.blender import run_script
+    from vrmkit.blender import run_script
 
     args = [str(input_file), str(output_file)]
     if title:
@@ -371,7 +371,7 @@ def editor(
     """Open visual editor in browser (three-vrm powered)."""
     import webbrowser
 
-    from vrm_kit.editor.server import start_server
+    from vrmkit.editor.server import start_server
 
     webbrowser.open(f"http://localhost:{port}")
     start_server(file, port=port)

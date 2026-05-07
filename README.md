@@ -17,7 +17,7 @@ Optional: `brew install --cask blender` for Blender-powered commands.
 ## Visual Editor
 
 ```bash
-python3 -m vrm_kit editor model.vrm
+python3 -m vrmkit editor model.vrm
 ```
 
 Opens a browser-based character editor at `http://localhost:8765`.
@@ -46,7 +46,7 @@ vrm-kit blender convert <fbx> <vrm> # FBX to VRM conversion
 ## Architecture
 
 ```
-vrm_kit/
+vrmkit/
 ├── glb.py                  # Zero-dep GLB parser (JSON + binary chunk manipulation)
 ├── vrm.py                  # VRM 0.x / 1.0 model layer
 ├── cli.py                  # Typer + Rich CLI

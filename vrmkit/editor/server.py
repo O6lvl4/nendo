@@ -11,7 +11,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
-from vrm_kit.vrm import Vrm
+from vrmkit.vrm import Vrm
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -89,7 +89,7 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND)
 
     def _save_spring_bone(self, data: dict) -> None:
-        from vrm_kit.vrm import VrmVersion
+        from vrmkit.vrm import VrmVersion
 
         ext = self._vrm.extensions
         if self._vrm.version == VrmVersion.V1:

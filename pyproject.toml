@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
-vrm-kit = "vrm_kit.cli:main"
+vrm-kit = "vrmkit.cli:main"
 
 [build-system]
 requires = ["hatchling"]
