@@ -551,16 +551,23 @@ canvas.addEventListener('pointerup', (e) => {
   const py = Math.floor((1 - hit.uv.y) * img.height);
   const pixel = recolorCtx.getImageData(px, py, 1, 1).data;
 
-  // Store original texture data
+  // Store original texture data (only needed for saving)
   originalTexData = recolorCtx.getImageData(0, 0, img.width, img.height);
-  canvasTexture = null; // reset so new CanvasTexture is created for this material
+
+  // Init GPU recolor pipeline
+  initRecolorGPU(tex);
 
   // Find texture/image index
   const texIndex = findTextureIndex(mat);
 
   sampledColor = { r: pixel[0], g: pixel[1], b: pixel[2] };
   sampledTexInfo = { mesh, material: mat, texture: tex, texIndex, image: img };
-  precomputeHSL_and_mask();
+
+  // Set sampled color HSL on GPU uniform
+  const [sH, sS, sL] = rgbToHsl(sampledColor.r, sampledColor.g, sampledColor.b);
+  if (recolorMat) {
+    recolorMat.uniforms.uSampledHSL.value.set(sH / 360, sS / 100, sL / 100);
+  }
 
   // Update UI
   const hex = `#${pixel[0].toString(16).padStart(2,'0')}${pixel[1].toString(16).padStart(2,'0')}${pixel[2].toString(16).padStart(2,'0')}`;
@@ -593,111 +600,173 @@ function findTextureIndex(mat) {
   return -1;
 }
 
-// ---- Pre-computed pixel data for fast recolor ----
-let canvasTexture = null;
-let recolorRafId = null;
-// Sparse: only store data for affected pixels
-let maskedIndices = null;  // Uint32Array of pixel indices
-let maskedHSL = null;      // Float32Array [h,s,l,...] only for masked pixels
-let maskedFalloff = null;  // Float32Array [falloff,...] only for masked pixels
-let outputData = null;     // Persistent ImageData (avoids re-alloc + full copy)
+// ---- GPU Recolor: all pixel work runs on the GPU via a fragment shader ----
+let recolorRT = null;       // WebGLRenderTarget
+let recolorMat = null;      // ShaderMaterial
+let recolorScene2 = null;   // Offscreen scene for the recolor pass
+let recolorCam2 = null;     // Ortho camera
 
-function precomputeHSL_and_mask() {
-  if (!originalTexData || !sampledColor) return;
-  const src = originalTexData.data;
-  const n = src.length / 4;
-  const tolerance = parseInt(document.getElementById('rc-tol').value);
-  const [sH, sS, sL] = rgbToHsl(sampledColor.r, sampledColor.g, sampledColor.b);
+const RECOLOR_VS = `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position, 1.0);
+}`;
 
-  // First pass: count matching pixels
-  const tmpIdx = [];
-  const tmpHsl = [];
-  const tmpFall = [];
+const RECOLOR_FS = `
+precision highp float;
+uniform sampler2D tOriginal;
+uniform vec3 uSampledHSL;  // h in [0,1], s in [0,1], l in [0,1]
+uniform float uHueShift;   // [-0.5, 0.5]
+uniform float uSatShift;   // [-1, 1]
+uniform float uBriShift;   // [-1, 1]
+uniform float uTolerance;  // [0, 1] (normalized from 0-80)
+varying vec2 vUv;
 
-  for (let i = 0; i < n; i++) {
-    const p = i * 4;
-    if (src[p + 3] < 10) continue;
-    const [h, s, l] = rgbToHsl(src[p], src[p+1], src[p+2]);
-    const sim = hueDist(h, sH) + Math.abs(s - sS) * 0.3 + Math.abs(l - sL) * 0.2;
-    if (sim <= tolerance) {
-      tmpIdx.push(i);
-      tmpHsl.push(h, s, l);
-      tmpFall.push(1 - sim / tolerance);
-    }
-  }
-
-  maskedIndices = new Uint32Array(tmpIdx);
-  maskedHSL = new Float32Array(tmpHsl);
-  maskedFalloff = new Float32Array(tmpFall);
-
-  // Init persistent output as copy of original
-  const w = originalTexData.width, h2 = originalTexData.height;
-  if (recolorCanvas.width !== w || recolorCanvas.height !== h2) {
-    recolorCanvas.width = w; recolorCanvas.height = h2;
-  }
-  outputData = recolorCtx.createImageData(w, h2);
-  outputData.data.set(src);
-
-  console.log(`Recolor mask: ${maskedIndices.length} / ${n} pixels (${(maskedIndices.length/n*100).toFixed(1)}%)`);
+vec3 rgbToHsl(vec3 c) {
+  float mx = max(c.r, max(c.g, c.b));
+  float mn = min(c.r, min(c.g, c.b));
+  float l = (mx + mn) * 0.5;
+  if (mx == mn) return vec3(0.0, 0.0, l);
+  float d = mx - mn;
+  float s = l > 0.5 ? d / (2.0 - mx - mn) : d / (mx + mn);
+  float h;
+  if (mx == c.r) h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+  else if (mx == c.g) h = (c.b - c.r) / d + 2.0;
+  else h = (c.r - c.g) / d + 4.0;
+  h /= 6.0;
+  return vec3(h, s, l);
 }
 
-function applyRecolorFast() {
-  if (!outputData || !maskedIndices) return;
-  const hueShift = parseInt(document.getElementById('rc-hue').value);
-  const satShift = parseInt(document.getElementById('rc-sat').value);
-  const briShift = parseInt(document.getElementById('rc-bri').value);
-
-  const dd = outputData.data;
-  const src = originalTexData.data;
-  const count = maskedIndices.length;
-
-  // Restore original + apply shift only for masked pixels
-  for (let k = 0; k < count; k++) {
-    const i = maskedIndices[k];
-    const p = i * 4, j = k * 3;
-    const f = maskedFalloff[k];
-    const [r, g, b] = hslToRgb(
-      maskedHSL[j] + hueShift * f,
-      maskedHSL[j+1] + satShift * f,
-      maskedHSL[j+2] + briShift * f * 0.5
-    );
-    dd[p] = r; dd[p+1] = g; dd[p+2] = b;
-  }
-
-  recolorCtx.putImageData(outputData, 0, 0);
+float hue2rgb(float p, float q, float t) {
+  if (t < 0.0) t += 1.0;
+  if (t > 1.0) t -= 1.0;
+  if (t < 1.0/6.0) return p + (q - p) * 6.0 * t;
+  if (t < 1.0/2.0) return q;
+  if (t < 2.0/3.0) return p + (q - p) * (2.0/3.0 - t) * 6.0;
+  return p;
 }
 
-function updateThreeTexture() {
-  if (!sampledTexInfo) return;
-  // Use CanvasTexture for direct GPU upload — no PNG encode
-  if (!canvasTexture) {
-    canvasTexture = new THREE.CanvasTexture(recolorCanvas);
-    canvasTexture.flipY = sampledTexInfo.texture.flipY;
-    canvasTexture.colorSpace = sampledTexInfo.texture.colorSpace;
-    // Swap the texture on the material
-    sampledTexInfo.material.map = canvasTexture;
-  }
-  canvasTexture.needsUpdate = true;
+vec3 hslToRgb(vec3 hsl) {
+  float h = fract(hsl.x);
+  float s = clamp(hsl.y, 0.0, 1.0);
+  float l = clamp(hsl.z, 0.0, 1.0);
+  if (s == 0.0) return vec3(l);
+  float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+  float p = 2.0 * l - q;
+  return vec3(
+    hue2rgb(p, q, h + 1.0/3.0),
+    hue2rgb(p, q, h),
+    hue2rgb(p, q, h - 1.0/3.0)
+  );
 }
 
-function updateTexturePreview() {
-  if (!originalTexData) return;
-  const previewCanvas = document.getElementById('tex-preview-canvas');
-  const aspect = originalTexData.width / originalTexData.height;
-  previewCanvas.width = 340;
-  previewCanvas.height = Math.round(340 / aspect);
-  previewCanvas.getContext('2d').drawImage(recolorCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
-  document.getElementById('tex-preview-name').textContent = sampledTexInfo?.material?.name || 'Texture';
+void main() {
+  vec4 texel = texture2D(tOriginal, vUv);
+  if (texel.a < 0.04 || uTolerance <= 0.0) {
+    gl_FragColor = texel;
+    return;
+  }
+  vec3 hsl = rgbToHsl(texel.rgb);
+
+  // Hue distance (circular)
+  float hDist = abs(hsl.x - uSampledHSL.x);
+  hDist = min(hDist, 1.0 - hDist) * 360.0;
+  float sDist = abs(hsl.y - uSampledHSL.y) * 100.0;
+  float lDist = abs(hsl.z - uSampledHSL.z) * 100.0;
+  float sim = hDist + sDist * 0.3 + lDist * 0.2;
+  float tol = uTolerance * 80.0; // scale back to 0-80 range
+
+  if (sim > tol) {
+    gl_FragColor = texel;
+    return;
+  }
+
+  float falloff = 1.0 - sim / tol;
+  vec3 shifted = vec3(
+    hsl.x + uHueShift * falloff,
+    hsl.y + uSatShift * falloff,
+    hsl.z + uBriShift * 0.5 * falloff
+  );
+  gl_FragColor = vec4(hslToRgb(shifted), texel.a);
+}`;
+
+function initRecolorGPU(texture) {
+  const w = texture.image?.width || 1024;
+  const h = texture.image?.height || 1024;
+
+  recolorRT = new THREE.WebGLRenderTarget(w, h, {
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    format: THREE.RGBAFormat,
+  });
+
+  recolorMat = new THREE.ShaderMaterial({
+    uniforms: {
+      tOriginal: { value: texture },
+      uSampledHSL: { value: new THREE.Vector3(0, 0, 0) },
+      uHueShift: { value: 0 },
+      uSatShift: { value: 0 },
+      uBriShift: { value: 0 },
+      uTolerance: { value: 0.375 }, // 30/80
+    },
+    vertexShader: RECOLOR_VS,
+    fragmentShader: RECOLOR_FS,
+    depthTest: false,
+    depthWrite: false,
+  });
+
+  recolorScene2 = new THREE.Scene();
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), recolorMat);
+  recolorScene2.add(quad);
+  recolorCam2 = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+}
+
+function runRecolorGPU() {
+  if (!recolorMat || !recolorRT) return;
+  renderer.setRenderTarget(recolorRT);
+  renderer.render(recolorScene2, recolorCam2);
+  renderer.setRenderTarget(null);
+}
+
+function applyRecolorToMaterial() {
+  if (!sampledTexInfo || !recolorRT) return;
+  // Swap material's map to the GPU-recolored render target
+  sampledTexInfo.material.map = recolorRT.texture;
+  sampledTexInfo.material.needsUpdate = true;
+}
+
+// Read GPU render target to canvas (only called on save — expensive)
+function readRecolorToCanvas(targetCanvas) {
+  if (!recolorRT) return;
+  const w = recolorRT.width, h = recolorRT.height;
+  targetCanvas.width = w; targetCanvas.height = h;
+  const ctx = targetCanvas.getContext('2d');
+  const buf = new Uint8Array(w * h * 4);
+  renderer.readRenderTargetPixels(recolorRT, 0, 0, w, h, buf);
+  const imgData = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    const srcRow = (h - 1 - y) * w * 4;
+    imgData.data.set(buf.subarray(srcRow, srcRow + w * 4), y * w * 4);
+  }
+  ctx.putImageData(imgData, 0, 0);
 }
 
 function scheduleRecolor() {
-  if (recolorRafId) return;
-  recolorRafId = requestAnimationFrame(() => {
-    recolorRafId = null;
-    applyRecolorFast();
-    updateThreeTexture();
-    updateTexturePreview();
-  });
+  // Just update uniforms and render on next frame — GPU does the rest
+  if (!recolorMat) return;
+  const hueShift = parseInt(document.getElementById('rc-hue').value) / 360;
+  const satShift = parseInt(document.getElementById('rc-sat').value) / 100;
+  const briShift = parseInt(document.getElementById('rc-bri').value) / 100;
+  const tolerance = parseInt(document.getElementById('rc-tol').value) / 80;
+
+  recolorMat.uniforms.uHueShift.value = hueShift;
+  recolorMat.uniforms.uSatShift.value = satShift;
+  recolorMat.uniforms.uBriShift.value = briShift;
+  recolorMat.uniforms.uTolerance.value = tolerance;
+
+  runRecolorGPU();
+  applyRecolorToMaterial();
 }
 
 // ---- Color picker: compute HSL shift from sampled → target ----
@@ -744,15 +813,10 @@ for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
     scheduleRecolor();
   });
 }
-// Tolerance changes need full recomputation (but debounced)
-let tolDebounce = null;
+// Tolerance: GPU handles it instantly, no debounce needed
 document.getElementById('rc-tol').addEventListener('input', (e) => {
   document.getElementById('rc-tol-val').textContent = e.target.value;
-  clearTimeout(tolDebounce);
-  tolDebounce = setTimeout(() => {
-    precomputeHSL_and_mask();
-    scheduleRecolor();
-  }, 150);
+  scheduleRecolor();
 });
 
 // Reset
@@ -761,21 +825,20 @@ document.getElementById('rc-reset').addEventListener('click', () => {
     document.getElementById(id).value = '0';
     document.getElementById(id + '-val').textContent = '0';
   }
-  if (originalTexData && sampledTexInfo) {
-    // Restore original pixels
-    if (outputData) outputData.data.set(originalTexData.data);
-    recolorCtx.putImageData(originalTexData, 0, 0);
-    updateThreeTexture();
-    updateTexturePreview();
+  if (sampledTexInfo) {
+    // Restore original texture on material
+    sampledTexInfo.material.map = sampledTexInfo.texture;
+    sampledTexInfo.material.needsUpdate = true;
   }
 });
 
 // Apply & Save to VRM
 document.getElementById('rc-apply').addEventListener('click', async () => {
-  if (!originalTexData || !sampledTexInfo) return;
+  if (!sampledTexInfo || !recolorRT) return;
 
-  // Ensure latest recolor is applied
-  applyRecolorFast();
+  // Read GPU result to canvas (only done on save)
+  runRecolorGPU();
+  readRecolorToCanvas(recolorCanvas);
 
   const blob = await new Promise(r => recolorCanvas.toBlob(r, 'image/png'));
 
@@ -801,8 +864,14 @@ document.getElementById('rc-apply').addEventListener('click', async () => {
   });
 
   if (resp.ok) {
-    // Update the original data so further edits stack correctly
+    // Update original so further edits stack correctly
     originalTexData = recolorCtx.getImageData(0, 0, recolorCanvas.width, recolorCanvas.height);
+    // Create new texture from saved data for the GPU pipeline
+    const savedTex = new THREE.CanvasTexture(recolorCanvas);
+    savedTex.flipY = sampledTexInfo.texture.flipY;
+    savedTex.colorSpace = sampledTexInfo.texture.colorSpace;
+    sampledTexInfo.texture = savedTex;
+    if (recolorMat) recolorMat.uniforms.tOriginal.value = savedTex;
     // Reset sliders
     for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
       document.getElementById(id).value = '0';
