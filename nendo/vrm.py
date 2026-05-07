@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from vrmkit.glb import GlbFile
+from nendo.glb import GlbFile
 
 
 class VrmVersion(Enum):

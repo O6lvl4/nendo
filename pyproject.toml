@@ -1,5 +1,5 @@
 [project]
-name = "vrm-kit"
+name = "nendo"
 version = "0.1.0"
 description = "VRM avatar file toolkit — inspect, edit, validate"
 requires-python = ">=3.10"
@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
-vrm-kit = "vrmkit.cli:main"
+nendo = "nendo.cli:main"
 
 [build-system]
 requires = ["hatchling"]
