@@ -18,10 +18,18 @@ body {
   font-size: 13px; color: var(--text); background: var(--bg);
   overflow: hidden; height: 100vh; display: flex;
 }
-
-/* Viewport */
 #viewport { flex:1; position:relative; }
 canvas { display:block; width:100%; height:100%; }
+
+/* Drop overlay */
+#drop-overlay {
+  position:absolute; inset:0; background:rgba(0,255,153,0.08);
+  border:3px dashed var(--accent); display:none;
+  align-items:center; justify-content:center; z-index:50;
+  font-size:18px; font-weight:600; color:var(--accent);
+}
+#drop-overlay.show { display:flex; }
+
 #top-bar {
   position:absolute; top:12px; left:12px; right:12px;
   display:flex; justify-content:space-between; align-items:center;
@@ -36,7 +44,24 @@ canvas { display:block; width:100%; height:100%; }
 .top-btn:hover { color:var(--text); border-color:var(--accent); }
 .top-btn.active { color:var(--accent); border-color:var(--accent); background:var(--accent-dim); }
 #capture-btn { background:var(--accent); color:#000; border-color:var(--accent); font-weight:600; }
-#capture-btn:hover { opacity:0.85; }
+
+/* Anim controls in viewport */
+#anim-bar {
+  position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+  display:flex; align-items:center; gap:10px;
+  background:rgba(16,16,30,0.9); border:1px solid var(--border);
+  border-radius:8px; padding:8px 16px; backdrop-filter:blur(8px);
+  pointer-events:auto;
+}
+#anim-bar .anim-name { font-size:12px; color:var(--accent2); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#anim-bar button {
+  background:none; border:1px solid var(--border); color:var(--text);
+  border-radius:4px; padding:4px 10px; cursor:pointer; font-size:12px;
+}
+#anim-bar button:hover { border-color:var(--accent); color:var(--accent); }
+#anim-bar button.active { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
+#anim-bar input[type="range"] { width:80px; accent-color:var(--accent); }
+#anim-bar .speed-val { font-size:11px; color:var(--dim); min-width:30px; }
 
 /* Panel */
 #panel {
@@ -51,6 +76,25 @@ canvas { display:block; width:100%; height:100%; }
 .panel-header a { color:var(--dim); font-size:12px; text-decoration:none; }
 .panel-header a:hover { color:var(--accent2); }
 
+/* Anim list */
+.anim-section { border-bottom:1px solid var(--border); padding:10px 16px; }
+.anim-section-title { font-size:11px; text-transform:uppercase; color:var(--dim); margin-bottom:8px; letter-spacing:0.05em; }
+.anim-item {
+  display:flex; align-items:center; padding:6px 10px; gap:8px;
+  border-radius:var(--radius); cursor:pointer; margin-bottom:3px;
+  border:1px solid transparent;
+}
+.anim-item:hover { background:var(--hover); }
+.anim-item.active { border-color:var(--accent); background:var(--accent-dim); }
+.anim-item .name { flex:1; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.anim-item .dur { font-size:11px; color:var(--dim); }
+.anim-item .del { font-size:10px; color:var(--dim); cursor:pointer; padding:2px 4px; }
+.anim-item .del:hover { color:var(--warn); }
+.drop-hint {
+  padding:12px; text-align:center; color:var(--dim); font-size:12px;
+  border:1px dashed var(--border); border-radius:var(--radius);
+}
+
 /* Presets */
 #presets {
   border-bottom:1px solid var(--border); padding:10px 16px;
@@ -59,21 +103,17 @@ canvas { display:block; width:100%; height:100%; }
 .preset-chip {
   padding:5px 12px; background:var(--panel2); border:1px solid var(--border);
   border-radius:20px; cursor:pointer; font-size:12px; color:var(--dim);
-  display:flex; align-items:center; gap:6px; transition:all 0.1s;
+  display:flex; align-items:center; gap:6px;
 }
 .preset-chip:hover { border-color:var(--accent2); color:var(--text); }
 .preset-chip.active { border-color:var(--accent); color:var(--accent); background:var(--accent-dim); }
-.preset-chip .del {
-  font-size:10px; opacity:0.4; cursor:pointer; margin-left:2px;
-}
+.preset-chip .del { font-size:10px; opacity:0.4; cursor:pointer; }
 .preset-chip .del:hover { opacity:1; color:var(--warn); }
 #save-preset-btn {
   padding:5px 12px; background:var(--accent); color:#000; border:none;
   border-radius:20px; cursor:pointer; font-size:12px; font-weight:600;
 }
-#save-preset-btn:hover { opacity:0.85; }
 
-/* Search */
 .search { padding:8px 16px; border-bottom:1px solid var(--border); }
 .search input {
   width:100%; background:var(--input-bg); border:1px solid var(--border);
@@ -81,7 +121,6 @@ canvas { display:block; width:100%; height:100%; }
 }
 .search input:focus { outline:none; border-color:var(--accent2); }
 
-/* Expression list */
 #expr-list { flex:1; overflow-y:auto; }
 #expr-list::-webkit-scrollbar { width:5px; }
 #expr-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
@@ -98,27 +137,19 @@ canvas { display:block; width:100%; height:100%; }
 .cat.collapsed .cat-body { display:none; }
 .cat-body { padding:4px 0; }
 .cat-count { font-size:11px; color:var(--dim); margin-left:auto; }
-
-.expr-row {
-  display:flex; align-items:center; padding:3px 16px 3px 24px; gap:8px;
-}
+.expr-row { display:flex; align-items:center; padding:3px 16px 3px 24px; gap:8px; }
 .expr-row label {
   min-width:130px; font-size:11px; color:var(--dim); overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; flex-shrink:0; cursor:default;
+  text-overflow:ellipsis; white-space:nowrap; flex-shrink:0;
 }
 .expr-row label:hover { color:var(--text); }
 .expr-row input[type="range"] { flex:1; accent-color:var(--accent); height:3px; }
-.expr-row .val {
-  min-width:28px; text-align:right; font-size:11px;
-  font-variant-numeric:tabular-nums; color:var(--accent);
-}
+.expr-row .val { min-width:28px; text-align:right; font-size:11px; font-variant-numeric:tabular-nums; color:var(--accent); }
 .expr-row.active label { color:var(--accent); font-weight:500; }
 
-/* Bottom bar */
 #bottom-bar {
   padding:8px 16px; border-top:1px solid var(--border);
-  display:flex; align-items:center; justify-content:space-between;
-  font-size:11px; color:var(--dim);
+  display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--dim);
 }
 .reset-btn {
   padding:5px 14px; background:var(--input-bg); border:1px solid var(--border);
@@ -127,36 +158,26 @@ canvas { display:block; width:100%; height:100%; }
 .reset-btn:hover { border-color:var(--warn); color:var(--warn); }
 
 .toast {
-  position:fixed; bottom:24px; left:50%;
-  transform:translateX(-50%) translateY(20px);
-  background:var(--accent); color:#000; padding:8px 24px;
-  border-radius:var(--radius); font-size:13px; font-weight:600;
-  opacity:0; transition:all 0.25s; z-index:100; pointer-events:none;
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:var(--accent); color:#000; padding:8px 24px; border-radius:var(--radius);
+  font-size:13px; font-weight:600; opacity:0; transition:all 0.25s; z-index:100; pointer-events:none;
 }
 .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 
-/* Save dialog */
 .dialog-overlay {
   position:fixed; inset:0; background:rgba(0,0,0,0.6);
   display:none; align-items:center; justify-content:center; z-index:200;
 }
 .dialog-overlay.show { display:flex; }
-.dialog {
-  background:var(--panel); border:1px solid var(--border); border-radius:8px;
-  padding:20px; min-width:300px;
-}
+.dialog { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:20px; min-width:300px; }
 .dialog h3 { margin-bottom:12px; font-size:14px; color:var(--accent); }
 .dialog input[type="text"] {
   width:100%; background:var(--input-bg); border:1px solid var(--border);
-  color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:13px;
-  margin-bottom:12px;
+  color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:13px; margin-bottom:12px;
 }
 .dialog input:focus { outline:none; border-color:var(--accent2); }
 .dialog-actions { display:flex; gap:8px; justify-content:flex-end; }
-.dialog-actions button {
-  padding:6px 16px; border-radius:var(--radius); cursor:pointer;
-  font-size:12px; font-weight:600; border:1px solid var(--border);
-}
+.dialog-actions button { padding:6px 16px; border-radius:var(--radius); cursor:pointer; font-size:12px; font-weight:600; border:1px solid var(--border); }
 .dialog-actions .cancel { background:var(--input-bg); color:var(--text); }
 .dialog-actions .ok { background:var(--accent); color:#000; border-color:var(--accent); }
 </style>
@@ -165,6 +186,7 @@ canvas { display:block; width:100%; height:100%; }
 
 <div id="viewport">
   <canvas id="canvas"></canvas>
+  <div id="drop-overlay">Drop FBX / BVH here</div>
   <div id="top-bar">
     <div style="display:flex;gap:6px">
       <button class="top-btn" data-view="face">Face</button>
@@ -175,12 +197,28 @@ canvas { display:block; width:100%; height:100%; }
       <button class="top-btn" id="capture-btn">Capture</button>
     </div>
   </div>
+  <div id="anim-bar">
+    <button id="anim-play">Pause</button>
+    <span class="anim-name" id="anim-name">Idle</span>
+    <input type="range" id="anim-speed" min="10" max="200" value="100">
+    <span class="speed-val" id="anim-speed-val">1.0x</span>
+  </div>
 </div>
 
 <div id="panel">
   <div class="panel-header">
-    <span>Expression Playground</span>
+    <span>Playground</span>
     <a href="/">Editor</a>
+  </div>
+
+  <div class="anim-section">
+    <div class="anim-section-title">Animations</div>
+    <div id="anim-list">
+      <div class="anim-item active" data-anim="idle">
+        <span class="name">Idle (built-in)</span>
+      </div>
+    </div>
+    <div class="drop-hint">Drag & drop FBX files here or on the viewport</div>
   </div>
 
   <div id="presets">
@@ -209,7 +247,6 @@ canvas { display:block; width:100%; height:100%; }
     </div>
   </div>
 </div>
-
 <div class="toast" id="toast"></div>
 
 <script type="importmap">
@@ -225,12 +262,17 @@ canvas { display:block; width:100%; height:100%; }
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import * as VRMModule from '@pixiv/three-vrm';
 const { VRMLoaderPlugin, VRMUtils } = VRMModule;
 
 let vrm = null;
 const clock = new THREE.Clock();
-// Current expression state: { name: weight }
+let mixer = null;
+let currentAction = null;
+let idleRunning = true;
+let animSpeed = 1.0;
+const loadedAnims = []; // { name, clip, action }
 const exprState = {};
 
 // ---- Three.js ----
@@ -245,10 +287,8 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0e0e18);
 const camera = new THREE.PerspectiveCamera(20, 1, 0.05, 100);
 const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+controls.enableDamping = true; controls.dampingFactor = 0.08;
 
-// Lights
 scene.add(new THREE.DirectionalLight(0xffffff, 1.0)).position.set(0.5, 2, -2);
 scene.add(new THREE.DirectionalLight(0xddeeff, 0.5)).position.set(-1, 1, 1);
 scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -259,10 +299,8 @@ function resize() {
   camera.aspect = vp.clientWidth / vp.clientHeight;
   camera.updateProjectionMatrix();
 }
-window.addEventListener('resize', resize);
-resize();
+window.addEventListener('resize', resize); resize();
 
-// ---- Helpers ----
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -272,41 +310,314 @@ function showToast(msg) {
 
 // ---- Camera ----
 function getRef() {
-  if (!vrm) return { head: [0,1.5,0], hips: [0,1,0], height: 0.5 };
+  if (!vrm) return { head:[0,1.5,0], hips:[0,1,0], height:0.5 };
   vrm.scene.updateMatrixWorld(true);
   const head = vrm.humanoid?.getNormalizedBoneNode('head');
   const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
   const hw = new THREE.Vector3(), hpw = new THREE.Vector3();
   if (head) head.getWorldPosition(hw);
   if (hips) hips.getWorldPosition(hpw);
-  return {
-    head: [hw.x, hw.y + 0.1, hw.z],
-    hips: [hpw.x, hpw.y, hpw.z],
-    height: hw.y - hpw.y + 0.3,
-  };
+  return { head:[hw.x,hw.y+0.1,hw.z], hips:[hpw.x,hpw.y,hpw.z], height:hw.y-hpw.y+0.3 };
 }
-function moveTo(pos, target) {
-  camera.position.set(...pos); controls.target.set(...target); controls.update();
-}
+function moveTo(pos, target) { camera.position.set(...pos); controls.target.set(...target); controls.update(); }
 document.querySelectorAll('[data-view]').forEach(btn => {
   btn.addEventListener('click', () => {
     const r = getRef();
     const views = {
-      face: () => moveTo([0, r.head[1], -0.5], r.head),
-      bust: () => {
-        const mid = [(r.head[0]+r.hips[0])/2, (r.head[1]+r.hips[1])/2+r.height*0.2, 0];
-        moveTo([0, mid[1], -r.height*1.2], mid);
-      },
-      full: () => {
-        const mid = [(r.head[0]+r.hips[0])/2, (r.head[1]+r.hips[1])/2, 0];
-        moveTo([0, mid[1]+r.height*0.1, -r.height*1.8], mid);
-      },
+      face: () => moveTo([0,r.head[1],-0.5], r.head),
+      bust: () => { const y=(r.head[1]+r.hips[1])/2+r.height*0.2; moveTo([0,y,-r.height*1.2],[0,y,0]); },
+      full: () => { const y=(r.head[1]+r.hips[1])/2; moveTo([0,y+r.height*0.1,-r.height*1.8],[0,y,0]); },
     };
     views[btn.dataset.view]?.();
   });
 });
 
-// ---- Expression categories ----
+// ================ IDLE ANIMATION ================
+let idleTime = 0;
+let nextBlink = 2;
+let blinkPhase = 0; // 0=open, >0 = closing/opening
+
+function updateIdle(dt) {
+  if (!vrm || !idleRunning) return;
+  idleTime += dt;
+
+  // Breathing: subtle spine rotation
+  const spine = vrm.humanoid?.getRawBoneNode('spine');
+  const chest = vrm.humanoid?.getRawBoneNode('chest');
+  if (spine) {
+    spine.rotation.x = Math.sin(idleTime * 1.2) * 0.008;
+  }
+  if (chest) {
+    chest.rotation.x = Math.sin(idleTime * 1.2 + 0.3) * 0.005;
+  }
+
+  // Subtle head sway
+  const head = vrm.humanoid?.getRawBoneNode('head');
+  if (head) {
+    head.rotation.y = Math.sin(idleTime * 0.4) * 0.02;
+    head.rotation.x = Math.sin(idleTime * 0.3 + 1) * 0.01;
+  }
+
+  // Blinking
+  if (vrm.expressionManager) {
+    blinkPhase -= dt;
+    if (blinkPhase <= 0) {
+      nextBlink -= dt;
+      if (nextBlink <= 0) {
+        blinkPhase = 0.15; // blink duration
+        nextBlink = 2 + Math.random() * 4;
+      }
+      vrm.expressionManager.setValue('blink', 0);
+    } else {
+      // Triangle wave for blink
+      const half = 0.075;
+      const t = 0.15 - blinkPhase;
+      const v = t < half ? t / half : 1 - (t - half) / half;
+      vrm.expressionManager.setValue('blink', v);
+    }
+  }
+}
+
+// ================ MIXAMO RETARGET ================
+const MIXAMO_MAP = {
+  'mixamorig:Hips': 'hips',
+  'mixamorig:Spine': 'spine',
+  'mixamorig:Spine1': 'chest',
+  'mixamorig:Spine2': 'upperChest',
+  'mixamorig:Neck': 'neck',
+  'mixamorig:Head': 'head',
+  'mixamorig:LeftShoulder': 'leftShoulder',
+  'mixamorig:LeftArm': 'leftUpperArm',
+  'mixamorig:LeftForeArm': 'leftLowerArm',
+  'mixamorig:LeftHand': 'leftHand',
+  'mixamorig:RightShoulder': 'rightShoulder',
+  'mixamorig:RightArm': 'rightUpperArm',
+  'mixamorig:RightForeArm': 'rightLowerArm',
+  'mixamorig:RightHand': 'rightHand',
+  'mixamorig:LeftUpLeg': 'leftUpperLeg',
+  'mixamorig:LeftLeg': 'leftLowerLeg',
+  'mixamorig:LeftFoot': 'leftFoot',
+  'mixamorig:LeftToeBase': 'leftToes',
+  'mixamorig:RightUpLeg': 'rightUpperLeg',
+  'mixamorig:RightLeg': 'rightLowerLeg',
+  'mixamorig:RightFoot': 'rightFoot',
+  'mixamorig:RightToeBase': 'rightToes',
+  // Fingers
+  'mixamorig:LeftHandThumb1': 'leftThumbMetacarpal',
+  'mixamorig:LeftHandThumb2': 'leftThumbProximal',
+  'mixamorig:LeftHandThumb3': 'leftThumbDistal',
+  'mixamorig:LeftHandIndex1': 'leftIndexProximal',
+  'mixamorig:LeftHandIndex2': 'leftIndexIntermediate',
+  'mixamorig:LeftHandIndex3': 'leftIndexDistal',
+  'mixamorig:LeftHandMiddle1': 'leftMiddleProximal',
+  'mixamorig:LeftHandMiddle2': 'leftMiddleIntermediate',
+  'mixamorig:LeftHandMiddle3': 'leftMiddleDistal',
+  'mixamorig:LeftHandRing1': 'leftRingProximal',
+  'mixamorig:LeftHandRing2': 'leftRingIntermediate',
+  'mixamorig:LeftHandRing3': 'leftRingDistal',
+  'mixamorig:LeftHandPinky1': 'leftLittleProximal',
+  'mixamorig:LeftHandPinky2': 'leftLittleIntermediate',
+  'mixamorig:LeftHandPinky3': 'leftLittleDistal',
+  'mixamorig:RightHandThumb1': 'rightThumbMetacarpal',
+  'mixamorig:RightHandThumb2': 'rightThumbProximal',
+  'mixamorig:RightHandThumb3': 'rightThumbDistal',
+  'mixamorig:RightHandIndex1': 'rightIndexProximal',
+  'mixamorig:RightHandIndex2': 'rightIndexIntermediate',
+  'mixamorig:RightHandIndex3': 'rightIndexDistal',
+  'mixamorig:RightHandMiddle1': 'rightMiddleProximal',
+  'mixamorig:RightHandMiddle2': 'rightMiddleIntermediate',
+  'mixamorig:RightHandMiddle3': 'rightMiddleDistal',
+  'mixamorig:RightHandRing1': 'rightRingProximal',
+  'mixamorig:RightHandRing2': 'rightRingIntermediate',
+  'mixamorig:RightHandRing3': 'rightRingDistal',
+  'mixamorig:RightHandPinky1': 'rightLittleProximal',
+  'mixamorig:RightHandPinky2': 'rightLittleIntermediate',
+  'mixamorig:RightHandPinky3': 'rightLittleDistal',
+};
+
+function retargetClip(clip) {
+  const newTracks = [];
+  for (const track of clip.tracks) {
+    // Track name format: "boneName.property"
+    const dotIdx = track.name.indexOf('.');
+    if (dotIdx < 0) continue;
+    const boneName = track.name.substring(0, dotIdx);
+    const property = track.name.substring(dotIdx);
+
+    // Map Mixamo bone name to VRM bone name
+    const vrmBoneName = MIXAMO_MAP[boneName];
+    if (!vrmBoneName) continue;
+
+    // Get the raw bone node for this VRM bone
+    const boneNode = vrm.humanoid?.getRawBoneNode(vrmBoneName);
+    if (!boneNode) continue;
+
+    // Skip position tracks except for hips (root motion)
+    if (property.includes('position') && vrmBoneName !== 'hips') continue;
+    // Skip scale tracks
+    if (property.includes('scale')) continue;
+
+    const newTrack = track.clone();
+    newTrack.name = boneNode.name + property;
+    newTracks.push(newTrack);
+  }
+  return new THREE.AnimationClip(clip.name || 'Retargeted', clip.duration, newTracks);
+}
+
+// ================ ANIMATION MANAGEMENT ================
+
+function playAnimation(anim) {
+  if (!mixer) return;
+
+  // Stop current
+  if (currentAction) {
+    currentAction.fadeOut(0.3);
+  }
+
+  if (anim === 'idle') {
+    idleRunning = true;
+    currentAction = null;
+    document.getElementById('anim-name').textContent = 'Idle';
+    // Reset pose
+    vrm.humanoid?.resetNormalizedPose();
+  } else {
+    idleRunning = false;
+    // Reset idle pose modifications
+    const spine = vrm.humanoid?.getRawBoneNode('spine');
+    const chest = vrm.humanoid?.getRawBoneNode('chest');
+    const head = vrm.humanoid?.getRawBoneNode('head');
+    if (spine) spine.rotation.x = 0;
+    if (chest) chest.rotation.x = 0;
+    if (head) { head.rotation.y = 0; head.rotation.x = 0; }
+
+    const action = mixer.clipAction(anim.clip);
+    action.reset();
+    action.fadeIn(0.3);
+    action.play();
+    currentAction = action;
+    document.getElementById('anim-name').textContent = anim.name;
+  }
+
+  // Update active state in list
+  document.querySelectorAll('.anim-item').forEach(item => {
+    const isActive = anim === 'idle' ? item.dataset.anim === 'idle' : item.dataset.anim === anim.name;
+    item.classList.toggle('active', isActive);
+  });
+}
+
+// ---- FBX loading ----
+const fbxLoader = new FBXLoader();
+
+function loadFBXFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const fbx = fbxLoader.parse(e.target.result, '');
+      const clips = fbx.animations;
+      if (!clips || clips.length === 0) {
+        showToast('No animations found in FBX');
+        return;
+      }
+
+      for (const clip of clips) {
+        const retargeted = retargetClip(clip);
+        if (retargeted.tracks.length === 0) {
+          showToast('Could not retarget: no matching bones');
+          continue;
+        }
+        const name = file.name.replace(/\.fbx$/i, '') + (clips.length > 1 ? ` (${clip.name})` : '');
+        const anim = { name, clip: retargeted };
+        loadedAnims.push(anim);
+        addAnimToList(anim);
+        playAnimation(anim);
+        showToast(`Loaded: ${name}`);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to load FBX');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function addAnimToList(anim) {
+  const list = document.getElementById('anim-list');
+  const item = document.createElement('div');
+  item.className = 'anim-item';
+  item.dataset.anim = anim.name;
+  item.innerHTML = `
+    <span class="name">${anim.name}</span>
+    <span class="dur">${anim.clip.duration.toFixed(1)}s</span>
+    <span class="del">x</span>
+  `;
+  item.addEventListener('click', (e) => {
+    if (e.target.classList.contains('del')) {
+      const idx = loadedAnims.indexOf(anim);
+      if (idx >= 0) loadedAnims.splice(idx, 1);
+      if (currentAction?.getClip() === anim.clip) playAnimation('idle');
+      item.remove();
+      return;
+    }
+    playAnimation(anim);
+  });
+  list.appendChild(item);
+}
+
+// Idle click handler
+document.querySelector('[data-anim="idle"]').addEventListener('click', () => playAnimation('idle'));
+
+// ---- Drag & drop ----
+const viewport = document.getElementById('viewport');
+const dropOverlay = document.getElementById('drop-overlay');
+
+['dragenter', 'dragover'].forEach(ev => {
+  viewport.addEventListener(ev, (e) => { e.preventDefault(); dropOverlay.classList.add('show'); });
+  document.getElementById('panel').addEventListener(ev, (e) => { e.preventDefault(); dropOverlay.classList.add('show'); });
+});
+['dragleave', 'drop'].forEach(ev => {
+  dropOverlay.addEventListener(ev, () => dropOverlay.classList.remove('show'));
+});
+
+viewport.addEventListener('drop', handleDrop);
+document.getElementById('panel').addEventListener('drop', handleDrop);
+
+function handleDrop(e) {
+  e.preventDefault();
+  dropOverlay.classList.remove('show');
+  const files = e.dataTransfer?.files;
+  if (!files) return;
+  for (const file of files) {
+    if (file.name.toLowerCase().endsWith('.fbx')) {
+      loadFBXFile(file);
+    } else {
+      showToast(`Unsupported: ${file.name}`);
+    }
+  }
+}
+
+// ---- Anim controls ----
+let animPaused = false;
+document.getElementById('anim-play').addEventListener('click', () => {
+  animPaused = !animPaused;
+  document.getElementById('anim-play').textContent = animPaused ? 'Play' : 'Pause';
+});
+document.getElementById('anim-speed').addEventListener('input', (e) => {
+  animSpeed = parseInt(e.target.value) / 100;
+  document.getElementById('anim-speed-val').textContent = animSpeed.toFixed(1) + 'x';
+  if (mixer) mixer.timeScale = animSpeed;
+});
+
+// ---- Capture ----
+document.getElementById('capture-btn').addEventListener('click', () => {
+  renderer.render(scene, camera);
+  canvas.toBlob((blob) => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `capture_${Date.now()}.png`; a.click(); URL.revokeObjectURL(a.href);
+    showToast('Captured');
+  });
+});
+
+// ================ EXPRESSIONS (same as before) ================
 const CATEGORIES = {
   'Emotion':   /^(happy|angry|sad|relaxed|surprised|joy|sorrow|fun|neutral)/i,
   'Eyes':      /^(blink|lookUp|lookDown|lookLeft|lookRight|eye_|Eye_|LowerEyelid|eyelash_|eyelid_|highlight_)/i,
@@ -320,232 +631,126 @@ function categorize(name) {
   return 'Other';
 }
 
-// ---- Build expression list ----
 function buildExprList() {
-  const container = document.getElementById('expr-list');
-  container.innerHTML = '';
+  const container = document.getElementById('expr-list'); container.innerHTML = '';
   if (!vrm?.expressionManager) return;
-
-  // Collect VRM expressions
   const items = [];
-  for (const expr of vrm.expressionManager.expressions) {
-    items.push({ name: expr.expressionName, type: 'vrm' });
-  }
-
-  // Collect mesh shape keys
+  for (const expr of vrm.expressionManager.expressions) items.push({ name:expr.expressionName, type:'vrm' });
   vrm.scene.traverse(obj => {
-    if ((obj.isMesh || obj.isSkinnedMesh) && obj.morphTargetDictionary) {
-      for (const [name, idx] of Object.entries(obj.morphTargetDictionary)) {
-        if (name === 'Basis') continue;
-        // Skip if same name as a VRM expression
-        if (items.some(i => i.name === name)) continue;
-        items.push({ name, type: 'shapekey', mesh: obj, index: idx });
+    if ((obj.isMesh||obj.isSkinnedMesh) && obj.morphTargetDictionary) {
+      for (const [name,idx] of Object.entries(obj.morphTargetDictionary)) {
+        if (name==='Basis' || items.some(i=>i.name===name)) continue;
+        items.push({ name, type:'shapekey', mesh:obj, index:idx });
       }
     }
   });
-
-  // Group by category
   const grouped = {};
   for (const item of items) {
-    const cat = item.type === 'vrm' ? 'VRM Expression' : categorize(item.name);
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(item);
+    const cat = item.type==='vrm' ? 'VRM Expression' : categorize(item.name);
+    (grouped[cat] ??= []).push(item);
   }
-
-  // VRM Expression first, then alphabetical
-  const order = ['VRM Expression', 'Emotion', 'Eyes', 'Mouth', 'Eyebrows', 'Lip Sync', 'Effects', 'Other'];
-  const sortedCats = Object.keys(grouped).sort((a, b) => {
-    const ai = order.indexOf(a), bi = order.indexOf(b);
-    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  const order = ['VRM Expression','Emotion','Eyes','Mouth','Eyebrows','Lip Sync','Effects','Other'];
+  const sorted = Object.keys(grouped).sort((a,b) => {
+    const ai=order.indexOf(a),bi=order.indexOf(b);
+    return (ai<0?99:ai)-(bi<0?99:bi);
   });
-
-  for (const cat of sortedCats) {
+  for (const cat of sorted) {
     const items = grouped[cat];
     const section = document.createElement('div');
-    section.className = 'cat' + (cat !== 'VRM Expression' ? ' collapsed' : '');
-
-    const head = document.createElement('div');
-    head.className = 'cat-head';
+    section.className = 'cat' + (cat!=='VRM Expression'?' collapsed':'');
+    const head = document.createElement('div'); head.className = 'cat-head';
     head.innerHTML = `<span class="cat-arrow">&#9660;</span><span>${cat}</span><span class="cat-count">${items.length}</span>`;
     head.addEventListener('click', () => section.classList.toggle('collapsed'));
-
-    const body = document.createElement('div');
-    body.className = 'cat-body';
-
+    const body = document.createElement('div'); body.className = 'cat-body';
     for (const item of items) {
-      const row = document.createElement('div');
-      row.className = 'expr-row';
-      row.dataset.name = item.name.toLowerCase();
-
-      const label = document.createElement('label');
-      label.textContent = item.name;
-      label.title = item.type === 'shapekey' ? `${item.mesh.name} / ${item.name}` : item.name;
-
-      const slider = document.createElement('input');
-      slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.value = '0';
-
-      const val = document.createElement('span');
-      val.className = 'val'; val.textContent = '0';
-
+      const row = document.createElement('div'); row.className='expr-row'; row.dataset.name=item.name.toLowerCase();
+      const label = document.createElement('label'); label.textContent=item.name;
+      const slider = document.createElement('input'); slider.type='range'; slider.min='0'; slider.max='100'; slider.value='0';
+      const val = document.createElement('span'); val.className='val'; val.textContent='0';
       slider.addEventListener('input', () => {
-        const v = parseInt(slider.value) / 100;
-        val.textContent = slider.value;
-        row.classList.toggle('active', v > 0);
-
-        if (item.type === 'vrm') {
-          vrm.expressionManager.setValue(item.name, v);
-        } else {
-          item.mesh.morphTargetInfluences[item.index] = v;
-        }
-        exprState[item.name] = v;
-        if (v === 0) delete exprState[item.name];
-        updateActiveCount();
+        const v=parseInt(slider.value)/100; val.textContent=slider.value;
+        row.classList.toggle('active',v>0);
+        if (item.type==='vrm') vrm.expressionManager.setValue(item.name,v);
+        else item.mesh.morphTargetInfluences[item.index]=v;
+        exprState[item.name]=v; if(v===0) delete exprState[item.name];
       });
-
-      row.append(label, slider, val);
-      body.appendChild(row);
+      row.append(label,slider,val); body.appendChild(row);
     }
-
-    section.append(head, body);
-    container.appendChild(section);
+    section.append(head,body); container.appendChild(section);
   }
 }
 
-function updateActiveCount() {
-  const n = Object.keys(exprState).length;
-  setStatus(n > 0 ? `${n} active` : 'Ready');
-}
-
-// ---- Search ----
-document.getElementById('search').addEventListener('input', (e) => {
-  const q = e.target.value.toLowerCase();
-  document.querySelectorAll('.expr-row').forEach(r => {
-    r.style.display = r.dataset.name.includes(q) ? '' : 'none';
-  });
-  document.querySelectorAll('.cat').forEach(cat => {
-    const vis = cat.querySelectorAll('.expr-row:not([style*="display: none"])').length;
-    cat.style.display = vis ? '' : 'none';
-    if (q && vis) cat.classList.remove('collapsed');
+document.getElementById('search').addEventListener('input',(e)=>{
+  const q=e.target.value.toLowerCase();
+  document.querySelectorAll('.expr-row').forEach(r=>r.style.display=r.dataset.name.includes(q)?'':'none');
+  document.querySelectorAll('.cat').forEach(cat=>{
+    const vis=cat.querySelectorAll('.expr-row:not([style*="display: none"])').length;
+    cat.style.display=vis?'':'none'; if(q&&vis) cat.classList.remove('collapsed');
   });
 });
 
-// ---- Reset ----
-document.getElementById('reset-all').addEventListener('click', () => {
-  if (!vrm) return;
-  // Reset VRM expressions
-  for (const expr of vrm.expressionManager.expressions) {
-    vrm.expressionManager.setValue(expr.expressionName, 0);
-  }
-  // Reset shape keys
-  vrm.scene.traverse(obj => {
-    if (obj.morphTargetInfluences) {
-      obj.morphTargetInfluences.fill(0);
-    }
-  });
-  // Reset sliders
-  document.querySelectorAll('.expr-row input[type="range"]').forEach(s => {
-    s.value = '0'; s.nextElementSibling.textContent = '0';
-  });
-  document.querySelectorAll('.expr-row').forEach(r => r.classList.remove('active'));
-  Object.keys(exprState).forEach(k => delete exprState[k]);
-  updateActiveCount();
+document.getElementById('reset-all').addEventListener('click',()=>{
+  if(!vrm) return;
+  for(const e of vrm.expressionManager.expressions) vrm.expressionManager.setValue(e.expressionName,0);
+  vrm.scene.traverse(o=>{if(o.morphTargetInfluences)o.morphTargetInfluences.fill(0)});
+  document.querySelectorAll('.expr-row input[type="range"]').forEach(s=>{s.value='0';s.nextElementSibling.textContent='0'});
+  document.querySelectorAll('.expr-row').forEach(r=>r.classList.remove('active'));
+  Object.keys(exprState).forEach(k=>delete exprState[k]);
 });
 
 // ---- Presets ----
 async function loadPresets() {
-  const resp = await fetch('/api/presets');
-  const presets = await resp.json();
+  const resp = await fetch('/api/presets'); const presets = await resp.json();
   const container = document.getElementById('presets');
-  // Keep save button
-  container.querySelectorAll('.preset-chip').forEach(c => c.remove());
-
+  container.querySelectorAll('.preset-chip').forEach(c=>c.remove());
   for (const preset of presets) {
-    const chip = document.createElement('div');
-    chip.className = 'preset-chip';
-    chip.innerHTML = `<span>${preset.name}</span><span class="del">x</span>`;
-
-    chip.addEventListener('click', (e) => {
-      if (e.target.classList.contains('del')) return;
+    const chip = document.createElement('div'); chip.className='preset-chip';
+    chip.innerHTML=`<span>${preset.name}</span><span class="del">x</span>`;
+    chip.addEventListener('click',(e)=>{
+      if(e.target.classList.contains('del'))return;
       applyPreset(preset);
-      container.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+      container.querySelectorAll('.preset-chip').forEach(c=>c.classList.remove('active'));
       chip.classList.add('active');
     });
-
-    chip.querySelector('.del').addEventListener('click', async () => {
-      await fetch(`/api/presets/${encodeURIComponent(preset.name)}`, { method: 'DELETE' });
-      loadPresets();
-      showToast('Deleted');
+    chip.querySelector('.del').addEventListener('click',async()=>{
+      await fetch(`/api/presets/${encodeURIComponent(preset.name)}`,{method:'DELETE'});
+      loadPresets(); showToast('Deleted');
     });
-
-    container.insertBefore(chip, container.lastElementChild);
+    container.insertBefore(chip,container.lastElementChild);
   }
 }
-
 function applyPreset(preset) {
-  // Reset first
   document.getElementById('reset-all').click();
-  // Apply values
-  const weights = preset.weights || {};
-  for (const [name, value] of Object.entries(weights)) {
-    exprState[name] = value;
-    // Find and update slider
-    document.querySelectorAll('.expr-row').forEach(row => {
-      const label = row.querySelector('label');
-      if (label && label.textContent === name) {
-        const slider = row.querySelector('input[type="range"]');
-        slider.value = String(Math.round(value * 100));
-        slider.nextElementSibling.textContent = String(Math.round(value * 100));
-        slider.dispatchEvent(new Event('input'));
+  for (const [name,value] of Object.entries(preset.weights||{})) {
+    exprState[name]=value;
+    document.querySelectorAll('.expr-row').forEach(row=>{
+      if(row.querySelector('label')?.textContent===name){
+        const s=row.querySelector('input[type="range"]');
+        s.value=String(Math.round(value*100)); s.nextElementSibling.textContent=String(Math.round(value*100));
+        s.dispatchEvent(new Event('input'));
       }
     });
   }
 }
-
-// Save dialog
-document.getElementById('save-preset-btn').addEventListener('click', () => {
-  if (Object.keys(exprState).length === 0) {
-    showToast('No expressions active');
-    return;
-  }
-  document.getElementById('preset-name').value = '';
+document.getElementById('save-preset-btn').addEventListener('click',()=>{
+  if(!Object.keys(exprState).length){showToast('No expressions active');return;}
+  document.getElementById('preset-name').value='';
   document.getElementById('save-dialog').classList.add('show');
   document.getElementById('preset-name').focus();
 });
-document.getElementById('save-cancel').addEventListener('click', () => {
+document.getElementById('save-cancel').addEventListener('click',()=>document.getElementById('save-dialog').classList.remove('show'));
+document.getElementById('save-ok').addEventListener('click',async()=>{
+  const name=document.getElementById('preset-name').value.trim(); if(!name)return;
+  await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,weights:{...exprState}})});
   document.getElementById('save-dialog').classList.remove('show');
+  loadPresets(); showToast(`Saved: ${name}`);
 });
-document.getElementById('save-ok').addEventListener('click', async () => {
-  const name = document.getElementById('preset-name').value.trim();
-  if (!name) return;
-  await fetch('/api/presets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, weights: { ...exprState } }),
-  });
-  document.getElementById('save-dialog').classList.remove('show');
-  loadPresets();
-  showToast(`Saved: ${name}`);
-});
-document.getElementById('preset-name').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('save-ok').click();
-  if (e.key === 'Escape') document.getElementById('save-cancel').click();
+document.getElementById('preset-name').addEventListener('keydown',(e)=>{
+  if(e.key==='Enter') document.getElementById('save-ok').click();
+  if(e.key==='Escape') document.getElementById('save-cancel').click();
 });
 
-// ---- Capture ----
-document.getElementById('capture-btn').addEventListener('click', () => {
-  renderer.render(scene, camera);
-  canvas.toBlob((blob) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `expression_${Date.now()}.png`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('Captured');
-  });
-});
-
-// ---- Load VRM ----
+// ================ LOAD VRM ================
 const loader = new GLTFLoader();
 loader.register((parser) => new VRMLoaderPlugin(parser));
 
@@ -561,22 +766,30 @@ async function loadVRM() {
     vrm.scene.updateMatrixWorld(true);
     URL.revokeObjectURL(url);
 
-    // Start with face view
+    mixer = new THREE.AnimationMixer(vrm.scene);
+
+    // Start with bust view
     const r = getRef();
-    moveTo([0, r.head[1], -0.5], r.head);
+    const y = (r.head[1]+r.hips[1])/2 + r.height*0.2;
+    moveTo([0, y, -r.height*1.2], [0, y, 0]);
 
     buildExprList();
     loadPresets();
-    setStatus('Ready');
-  }, (p) => {
-    if (p.total) setStatus(`Loading... ${Math.round(p.loaded/p.total*100)}%`);
-  }, (err) => setStatus(`Error: ${err.message}`));
+    setStatus('Ready — drop FBX to animate');
+  }, (p) => { if(p.total) setStatus(`Loading... ${Math.round(p.loaded/p.total*100)}%`); },
+  (err) => setStatus(`Error: ${err.message}`));
 }
 
 // ---- Render ----
 function animate() {
   requestAnimationFrame(animate);
-  if (vrm) vrm.update(clock.getDelta());
+  const dt = clock.getDelta();
+
+  if (!animPaused) {
+    if (idleRunning) updateIdle(dt * animSpeed);
+    if (mixer) mixer.update(dt * animSpeed);
+  }
+  if (vrm) vrm.update(dt);
   controls.update();
   renderer.render(scene, camera);
 }
