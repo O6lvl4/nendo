@@ -335,27 +335,119 @@ document.querySelectorAll('[data-view]').forEach(btn => {
 // ================ IDLE ANIMATION ================
 let idleTime = 0;
 let nextBlink = 2;
-let blinkPhase = 0; // 0=open, >0 = closing/opening
+let blinkPhase = 0;
+// Cached bone nodes (resolved once after VRM load)
+let idleBones = {};
+
+function initIdlePose() {
+  if (!vrm) return;
+
+  // Build a name→bone map by traversing the scene
+  const bonesByName = {};
+  vrm.scene.traverse(obj => {
+    if (obj.isBone || obj.type === 'Bone') bonesByName[obj.name] = obj;
+  });
+  console.log('All bones:', Object.keys(bonesByName).join(', '));
+
+  // Map VRM humanoid bone names to actual scene bone names
+  // VRM 0.x stores bone mappings in the extension
+  const humanBoneMap = {};
+  if (vrm.humanoid) {
+    // Try three-vrm API first
+    const tryNames = ['hips','spine','chest','neck','head',
+      'leftShoulder','leftUpperArm','leftLowerArm','leftHand',
+      'rightShoulder','rightUpperArm','rightLowerArm','rightHand',
+      'leftUpperLeg','leftLowerLeg','leftFoot','rightUpperLeg','rightLowerLeg','rightFoot'];
+    for (const n of tryNames) {
+      const node = vrm.humanoid.getRawBoneNode?.(n) || vrm.humanoid.getNormalizedBoneNode?.(n);
+      if (node) humanBoneMap[n] = node;
+    }
+  }
+
+  // Fallback: match by common bone naming conventions
+  if (!humanBoneMap.spine) {
+    const namePatterns = {
+      spine: /^spine$/i, chest: /^chest$/i, neck: /^neck$/i, head: /^head$/i,
+      leftUpperArm: /^(left.?upper.?arm|leftarm|arm_l)$/i,
+      rightUpperArm: /^(right.?upper.?arm|rightarm|arm_r)$/i,
+      leftLowerArm: /^(left.?lower.?arm|leftforearm|forearm_l)$/i,
+      rightLowerArm: /^(right.?lower.?arm|rightforearm|forearm_r)$/i,
+    };
+    for (const [vrmName, pattern] of Object.entries(namePatterns)) {
+      if (humanBoneMap[vrmName]) continue;
+      for (const [boneName, bone] of Object.entries(bonesByName)) {
+        if (pattern.test(boneName)) { humanBoneMap[vrmName] = bone; break; }
+      }
+    }
+  }
+
+  // Direct name match as last resort
+  for (const name of ['Spine','Chest','Neck','Head','LeftUpperArm','RightUpperArm','LeftLowerArm','RightLowerArm']) {
+    const vrm_name = name.charAt(0).toLowerCase() + name.slice(1);
+    if (!humanBoneMap[vrm_name] && bonesByName[name]) {
+      humanBoneMap[vrm_name] = bonesByName[name];
+    }
+  }
+
+  idleBones = {
+    spine: humanBoneMap.spine,
+    chest: humanBoneMap.chest,
+    head: humanBoneMap.head,
+    neck: humanBoneMap.neck,
+    leftUpperArm: humanBoneMap.leftUpperArm,
+    rightUpperArm: humanBoneMap.rightUpperArm,
+    leftLowerArm: humanBoneMap.leftLowerArm,
+    rightLowerArm: humanBoneMap.rightLowerArm,
+  };
+
+  console.log('Idle bones resolved:', Object.entries(idleBones).map(([k,v]) => `${k}:${v?.name||'NULL'}`).join(', '));
+
+  // Natural relaxed pose — arms down, slight elbow bend
+  if (idleBones.leftUpperArm) {
+    idleBones.leftUpperArm.rotation.z = -1.1;  // arm mostly down
+    idleBones.leftUpperArm.rotation.x = 0.1;   // slightly forward
+  }
+  if (idleBones.rightUpperArm) {
+    idleBones.rightUpperArm.rotation.z = 1.1;
+    idleBones.rightUpperArm.rotation.x = 0.1;
+  }
+  if (idleBones.leftLowerArm) {
+    idleBones.leftLowerArm.rotation.z = -0.3;  // slight elbow bend
+  }
+  if (idleBones.rightLowerArm) {
+    idleBones.rightLowerArm.rotation.z = 0.3;
+  }
+}
 
 function updateIdle(dt) {
   if (!vrm || !idleRunning) return;
   idleTime += dt;
 
-  // Breathing: subtle spine rotation
-  const spine = vrm.humanoid?.getRawBoneNode('spine');
-  const chest = vrm.humanoid?.getRawBoneNode('chest');
-  if (spine) {
-    spine.rotation.x = Math.sin(idleTime * 1.2) * 0.008;
+  // Breathing: spine + chest oscillation
+  if (idleBones.spine) {
+    idleBones.spine.rotation.x = Math.sin(idleTime * 1.2) * 0.015;
   }
-  if (chest) {
-    chest.rotation.x = Math.sin(idleTime * 1.2 + 0.3) * 0.005;
+  if (idleBones.chest) {
+    idleBones.chest.rotation.x = Math.sin(idleTime * 1.2 + 0.3) * 0.01;
   }
 
-  // Subtle head sway
-  const head = vrm.humanoid?.getRawBoneNode('head');
-  if (head) {
-    head.rotation.y = Math.sin(idleTime * 0.4) * 0.02;
-    head.rotation.x = Math.sin(idleTime * 0.3 + 1) * 0.01;
+  // Head sway
+  if (idleBones.head) {
+    idleBones.head.rotation.y = Math.sin(idleTime * 0.4) * 0.03;
+    idleBones.head.rotation.x = Math.sin(idleTime * 0.3 + 1) * 0.015 - 0.02;
+  }
+  if (idleBones.neck) {
+    idleBones.neck.rotation.y = Math.sin(idleTime * 0.35 + 0.5) * 0.015;
+  }
+
+  // Subtle arm sway
+  if (idleBones.leftUpperArm) {
+    idleBones.leftUpperArm.rotation.z = -1.1 + Math.sin(idleTime * 0.5) * 0.02;
+    idleBones.leftUpperArm.rotation.x = 0.1 + Math.sin(idleTime * 0.7) * 0.01;
+  }
+  if (idleBones.rightUpperArm) {
+    idleBones.rightUpperArm.rotation.z = 1.1 + Math.sin(idleTime * 0.5 + 0.5) * 0.02;
+    idleBones.rightUpperArm.rotation.x = 0.1 + Math.sin(idleTime * 0.7 + 0.5) * 0.01;
   }
 
   // Blinking
@@ -364,12 +456,11 @@ function updateIdle(dt) {
     if (blinkPhase <= 0) {
       nextBlink -= dt;
       if (nextBlink <= 0) {
-        blinkPhase = 0.15; // blink duration
+        blinkPhase = 0.15;
         nextBlink = 2 + Math.random() * 4;
       }
       vrm.expressionManager.setValue('blink', 0);
     } else {
-      // Triangle wave for blink
       const half = 0.075;
       const t = 0.15 - blinkPhase;
       const v = t < half ? t / half : 1 - (t - half) / half;
@@ -768,6 +859,9 @@ async function loadVRM() {
 
     mixer = new THREE.AnimationMixer(vrm.scene);
 
+    // Set natural idle pose
+    initIdlePose();
+
     // Start with bust view
     const r = getRef();
     const y = (r.head[1]+r.hips[1])/2 + r.height*0.2;
@@ -785,11 +879,12 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
 
-  if (!animPaused) {
-    if (idleRunning) updateIdle(dt * animSpeed);
-    if (mixer) mixer.update(dt * animSpeed);
-  }
   if (vrm) vrm.update(dt);
+  if (!animPaused) {
+    if (mixer) mixer.update(dt * animSpeed);
+    // Idle runs AFTER vrm.update so bone changes aren't overwritten
+    if (idleRunning) updateIdle(dt * animSpeed);
+  }
   controls.update();
   renderer.render(scene, camera);
 }
