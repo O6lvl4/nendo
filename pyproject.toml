@@ -1,0 +1,16 @@
+[project]
+name = "vrm-kit"
+version = "0.1.0"
+description = "VRM avatar file toolkit — inspect, edit, validate"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.9",
+    "rich>=13.0",
+]
+
+[project.scripts]
+vrm-kit = "vrm_kit.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
