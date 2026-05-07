@@ -183,6 +183,63 @@ def migrate_0_to_1(vrm: Vrm) -> Vrm:
             ]
         }
 
+    # ---- MToon Materials ----
+    MTOON_FLOAT_MAP = {
+        "_ShadeShift": "shadingShiftFactor",
+        "_ShadeToony": "shadingToonyFactor",
+        "_RimFresnelPower": "parametricRimFresnelPowerFactor",
+        "_RimLift": "parametricRimLiftFactor",
+        "_OutlineWidth": "outlineWidthFactor",
+        "_OutlineLightingMix": "outlineLightingMixFactor",
+        "_UvAnimScrollX": "uvAnimationScrollXSpeedFactor",
+        "_UvAnimScrollY": "uvAnimationScrollYSpeedFactor",
+        "_UvAnimRotation": "uvAnimationRotationSpeedFactor",
+    }
+    MTOON_VECTOR_MAP = {
+        "_ShadeColor": "shadeColorFactor",
+        "_RimColor": "parametricRimColorFactor",
+        "_OutlineColor": "outlineColorFactor",
+    }
+    MTOON_TEX_MAP = {
+        "_ShadeTexture": "shadeMultiplyTexture",
+        "_SphereAdd": "matcapTexture",
+        "_RimTexture": "rimMultiplyTexture",
+        "_OutlineWidthTexture": "outlineWidthMultiplyTexture",
+        "_UvAnimMaskTexture": "uvAnimationMaskTexture",
+    }
+    OUTLINE_MODE_MAP = {0: "none", 1: "worldCoordinates", 2: "screenCoordinates"}
+
+    mat_props = v0.get("materialProperties", [])
+    gltf_mats = gltf.get("materials", [])
+    for i, mp in enumerate(mat_props):
+        shader = mp.get("shader", "")
+        if "MToon" not in shader and "VRM/MToon" not in shader:
+            continue
+        if i >= len(gltf_mats):
+            continue
+        floats = mp.get("floatProperties", {})
+        vectors = mp.get("vectorProperties", {})
+        textures = mp.get("textureProperties", {})
+
+        mtoon: dict[str, Any] = {"specVersion": "1.0"}
+        for v0_key, v1_key in MTOON_FLOAT_MAP.items():
+            v = floats.get(v0_key)
+            if v is not None:
+                mtoon[v1_key] = v
+        for v0_key, v1_key in MTOON_VECTOR_MAP.items():
+            v = vectors.get(v0_key)
+            if v and len(v) >= 3:
+                mtoon[v1_key] = v[:3]
+        for v0_key, v1_key in MTOON_TEX_MAP.items():
+            v = textures.get(v0_key)
+            if v is not None:
+                mtoon[v1_key] = {"index": v}
+        outline_mode = floats.get("_OutlineWidthMode")
+        if outline_mode is not None:
+            mtoon["outlineWidthMode"] = OUTLINE_MODE_MAP.get(int(outline_mode), "none")
+
+        gltf_mats[i].setdefault("extensions", {})["VRMC_materials_mtoon"] = mtoon
+
     # ---- Write extensions ----
     gltf.setdefault("extensions", {})["VRMC_vrm"] = vrmc
 
@@ -230,7 +287,7 @@ def migrate_0_to_1(vrm: Vrm) -> Vrm:
 
     # Register used extensions
     used = gltf.setdefault("extensionsUsed", [])
-    for ext in ("VRMC_vrm", "VRMC_springBone"):
+    for ext in ("VRMC_vrm", "VRMC_springBone", "VRMC_materials_mtoon"):
         if ext in gltf.get("extensions", {}) and ext not in used:
             used.append(ext)
 
