@@ -404,18 +404,18 @@ function initIdlePose() {
 
   // Natural relaxed pose — arms down, slight elbow bend
   if (idleBones.leftUpperArm) {
-    idleBones.leftUpperArm.rotation.z = -1.1;  // arm mostly down
-    idleBones.leftUpperArm.rotation.x = 0.1;   // slightly forward
+    idleBones.leftUpperArm.rotation.z = 1.1;
+    idleBones.leftUpperArm.rotation.x = 0.1;
   }
   if (idleBones.rightUpperArm) {
-    idleBones.rightUpperArm.rotation.z = 1.1;
+    idleBones.rightUpperArm.rotation.z = -1.1;
     idleBones.rightUpperArm.rotation.x = 0.1;
   }
   if (idleBones.leftLowerArm) {
-    idleBones.leftLowerArm.rotation.z = -0.3;  // slight elbow bend
+    idleBones.leftLowerArm.rotation.z = 0.3;
   }
   if (idleBones.rightLowerArm) {
-    idleBones.rightLowerArm.rotation.z = 0.3;
+    idleBones.rightLowerArm.rotation.z = -0.3;
   }
 }
 
@@ -442,11 +442,11 @@ function updateIdle(dt) {
 
   // Subtle arm sway
   if (idleBones.leftUpperArm) {
-    idleBones.leftUpperArm.rotation.z = -1.1 + Math.sin(idleTime * 0.5) * 0.02;
+    idleBones.leftUpperArm.rotation.z = 1.1 + Math.sin(idleTime * 0.5) * 0.02;
     idleBones.leftUpperArm.rotation.x = 0.1 + Math.sin(idleTime * 0.7) * 0.01;
   }
   if (idleBones.rightUpperArm) {
-    idleBones.rightUpperArm.rotation.z = 1.1 + Math.sin(idleTime * 0.5 + 0.5) * 0.02;
+    idleBones.rightUpperArm.rotation.z = -1.1 + Math.sin(idleTime * 0.5 + 0.5) * 0.02;
     idleBones.rightUpperArm.rotation.x = 0.1 + Math.sin(idleTime * 0.7 + 0.5) * 0.01;
   }
 
