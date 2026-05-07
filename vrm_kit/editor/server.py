@@ -61,6 +61,10 @@ class EditorHandler(SimpleHTTPRequestHandler):
             data = json.loads(body)
             self._save_spring_bone(data)
             self._json_response({"ok": True})
+        elif path == "/api/save-customization":
+            data = json.loads(body)
+            self._save_customization(data)
+            self._json_response({"ok": True})
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -75,6 +79,33 @@ class EditorHandler(SimpleHTTPRequestHandler):
             vrm_ext["secondaryAnimation"] = data
             ext["VRM"] = vrm_ext
         self._vrm.save(self._vrm_path)
+
+    def _save_customization(self, data: dict) -> None:
+        """Save morph target weights and material colors back to the GLB."""
+        gltf = self._vrm.glb.json_data
+
+        # Morph target weights: { mesh_index: [weight, ...] }
+        weights = data.get("weights", {})
+        for mesh_idx_str, w_list in weights.items():
+            mesh_idx = int(mesh_idx_str)
+            meshes = gltf.get("meshes", [])
+            if mesh_idx < len(meshes):
+                meshes[mesh_idx]["weights"] = w_list
+
+        # Material colors: { material_index: { baseColor: [r,g,b,a], ... } }
+        materials = data.get("materials", {})
+        for mat_idx_str, props in materials.items():
+            mat_idx = int(mat_idx_str)
+            mats = gltf.get("materials", [])
+            if mat_idx < len(mats):
+                mat = mats[mat_idx]
+                if "baseColor" in props:
+                    mat.setdefault("pbrMetallicRoughness", {})[
+                        "baseColorFactor"
+                    ] = props["baseColor"]
+
+        self._vrm.save(self._vrm_path)
+        self._vrm = Vrm.load(self._vrm_path)
 
     def _serve_vrm_file(self) -> None:
         data = self._vrm_path.read_bytes()
