@@ -157,6 +157,22 @@ canvas { display:block; width:100%; height:100%; }
 }
 .reset-btn:hover { border-color:var(--warn); color:var(--warn); }
 
+/* Loading overlay */
+#loading-overlay {
+  position:absolute; inset:0; background:var(--bg);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:60; transition:opacity 0.4s;
+}
+#loading-overlay.hidden { opacity:0; pointer-events:none; }
+.loader-ring {
+  width:48px; height:48px; border:3px solid var(--border);
+  border-top-color:var(--accent); border-radius:50%;
+  animation:spin 0.8s linear infinite; margin-bottom:16px;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+#loading-text { font-size:14px; color:var(--dim); }
+#loading-pct { font-size:24px; font-weight:600; color:var(--accent); margin-bottom:4px; font-variant-numeric:tabular-nums; }
+
 .toast {
   position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
   background:var(--accent); color:#000; padding:8px 24px; border-radius:var(--radius);
@@ -186,7 +202,12 @@ canvas { display:block; width:100%; height:100%; }
 
 <div id="viewport">
   <canvas id="canvas"></canvas>
-  <div id="drop-overlay">Drop FBX / BVH here</div>
+  <div id="drop-overlay">Drop VRM / FBX here</div>
+  <div id="loading-overlay">
+    <div class="loader-ring"></div>
+    <div id="loading-pct">0%</div>
+    <div id="loading-text">Loading model...</div>
+  </div>
   <div id="top-bar">
     <div style="display:flex;gap:6px">
       <button class="top-btn" data-view="face">Face</button>
@@ -218,7 +239,7 @@ canvas { display:block; width:100%; height:100%; }
         <span class="name">Idle (built-in)</span>
       </div>
     </div>
-    <div class="drop-hint">Drag & drop FBX files here or on the viewport</div>
+    <div class="drop-hint">Drag & drop VRM / FBX files here or on the viewport</div>
   </div>
 
   <div id="presets">
@@ -678,12 +699,54 @@ function handleDrop(e) {
   const files = e.dataTransfer?.files;
   if (!files) return;
   for (const file of files) {
-    if (file.name.toLowerCase().endsWith('.fbx')) {
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.fbx')) {
       loadFBXFile(file);
+    } else if (name.endsWith('.vrm')) {
+      loadVRMFromFile(file);
     } else {
       showToast(`Unsupported: ${file.name}`);
     }
   }
+}
+
+function loadVRMFromFile(file) {
+  const overlay = document.getElementById('loading-overlay');
+  overlay.style.display = 'flex';
+  overlay.classList.remove('hidden');
+  document.getElementById('loading-pct').textContent = '';
+  document.getElementById('loading-text').textContent = 'Loading dropped VRM...';
+
+  const url = URL.createObjectURL(file);
+  // Remove old model
+  if (vrm) { VRMUtils.deepDispose(vrm.scene); scene.remove(vrm.scene); }
+  if (mixer) { mixer.stopAllAction(); mixer = null; }
+  currentAction = null;
+  idleRunning = true;
+
+  loader.load(url, (gltf) => {
+    vrm = gltf.userData.vrm;
+    VRMUtils.rotateVRM0(vrm);
+    scene.add(vrm.scene);
+    vrm.scene.updateMatrixWorld(true);
+    URL.revokeObjectURL(url);
+
+    mixer = new THREE.AnimationMixer(vrm.scene);
+    initIdlePose();
+
+    const r = getRef();
+    const y = (r.head[1]+r.hips[1])/2 + r.height*0.2;
+    moveTo([0, y, -r.height*1.2], [0, y, 0]);
+
+    buildExprList();
+    setStatus(`Loaded: ${file.name}`);
+    overlay.classList.add('hidden');
+    setTimeout(() => overlay.style.display = 'none', 500);
+    showToast(`Loaded: ${file.name}`);
+  }, null, (err) => {
+    showToast(`Failed: ${err.message}`);
+    overlay.classList.add('hidden');
+  });
 }
 
 // ---- Anim controls ----
@@ -847,8 +910,32 @@ loader.register((parser) => new VRMLoaderPlugin(parser));
 
 async function loadVRM() {
   setStatus('Loading...');
+  const overlay = document.getElementById('loading-overlay');
+  const pctEl = document.getElementById('loading-pct');
+  const textEl = document.getElementById('loading-text');
+
+  textEl.textContent = 'Downloading...';
   const resp = await fetch('/api/vrm');
-  const blob = await resp.blob();
+  const total = parseInt(resp.headers.get('Content-Length') || '0');
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    if (total) {
+      const pct = Math.round(received / total * 100);
+      pctEl.textContent = `${pct}%`;
+    }
+  }
+
+  const blob = new Blob(chunks);
+  pctEl.textContent = '100%';
+  textEl.textContent = 'Parsing model...';
+
   const url = URL.createObjectURL(blob);
   loader.load(url, (gltf) => {
     vrm = gltf.userData.vrm;
@@ -870,8 +957,18 @@ async function loadVRM() {
     buildExprList();
     loadPresets();
     setStatus('Ready — drop FBX to animate');
-  }, (p) => { if(p.total) setStatus(`Loading... ${Math.round(p.loaded/p.total*100)}%`); },
-  (err) => setStatus(`Error: ${err.message}`));
+
+    // Hide loading overlay
+    overlay.classList.add('hidden');
+    setTimeout(() => overlay.style.display = 'none', 500);
+  }, (p) => {
+    if (p.total) {
+      const pct = Math.round(p.loaded / p.total * 100);
+      pctEl.textContent = `${pct}%`;
+      textEl.textContent = 'Parsing model...';
+    }
+  },
+  (err) => { setStatus(`Error: ${err.message}`); textEl.textContent = `Error: ${err.message}`; });
 }
 
 // ---- Render ----
