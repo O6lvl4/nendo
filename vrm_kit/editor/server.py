@@ -43,6 +43,10 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self._serve_texture(path)
         elif path == "/api/textures":
             self._list_textures()
+        elif path == "/api/presets":
+            self._list_presets()
+        elif path == "/playground":
+            self._serve_file("playground.html", "text/html")
         elif path == "/":
             self._serve_file("index.html", "text/html")
         else:
@@ -71,6 +75,16 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self._json_response({"ok": True})
         elif path.startswith("/api/texture/"):
             self._replace_texture(path, body)
+        elif path == "/api/presets":
+            self._save_preset(body)
+        else:
+            self.send_error(HTTPStatus.NOT_FOUND)
+
+    def do_DELETE(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        if path.startswith("/api/presets/"):
+            self._delete_preset(path)
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -164,6 +178,33 @@ class EditorHandler(SimpleHTTPRequestHandler):
         except (IndexError, Exception) as e:
             self.send_response(HTTPStatus.BAD_REQUEST)
             self._json_response({"error": str(e)})
+
+    @property
+    def _presets_path(self) -> Path:
+        return self._vrm_path.with_suffix(".presets.json")
+
+    def _list_presets(self) -> None:
+        p = self._presets_path
+        data = json.loads(p.read_text("utf-8")) if p.exists() else []
+        self._json_response(data)
+
+    def _save_preset(self, body: bytes) -> None:
+        preset = json.loads(body)
+        p = self._presets_path
+        data = json.loads(p.read_text("utf-8")) if p.exists() else []
+        # Replace if same name exists
+        data = [d for d in data if d.get("name") != preset.get("name")]
+        data.append(preset)
+        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+        self._json_response({"ok": True})
+
+    def _delete_preset(self, path: str) -> None:
+        name = urllib.parse.unquote(path.rsplit("/", 1)[-1])
+        p = self._presets_path
+        data = json.loads(p.read_text("utf-8")) if p.exists() else []
+        data = [d for d in data if d.get("name") != name]
+        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+        self._json_response({"ok": True})
 
     def _serve_vrm_file(self) -> None:
         data = self._vrm_path.read_bytes()
