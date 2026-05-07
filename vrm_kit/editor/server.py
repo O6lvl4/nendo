@@ -39,6 +39,10 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self._json_response(self._vrm.expressions)
         elif path == "/api/springbone":
             self._json_response(self._vrm.spring_bone)
+        elif path.startswith("/api/texture/"):
+            self._serve_texture(path)
+        elif path == "/api/textures":
+            self._list_textures()
         elif path == "/":
             self._serve_file("index.html", "text/html")
         else:
@@ -65,6 +69,8 @@ class EditorHandler(SimpleHTTPRequestHandler):
             data = json.loads(body)
             self._save_customization(data)
             self._json_response({"ok": True})
+        elif path.startswith("/api/texture/"):
+            self._replace_texture(path, body)
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -106,6 +112,58 @@ class EditorHandler(SimpleHTTPRequestHandler):
 
         self._vrm.save(self._vrm_path)
         self._vrm = Vrm.load(self._vrm_path)
+
+    def _list_textures(self) -> None:
+        images = self._vrm.glb.json_data.get("images", [])
+        textures = self._vrm.glb.json_data.get("textures", [])
+        materials = self._vrm.glb.json_data.get("materials", [])
+
+        # Map texture index -> material names
+        tex_to_mats: dict[int, list[str]] = {}
+        for mat in materials:
+            pbr = mat.get("pbrMetallicRoughness", {})
+            tex_idx = pbr.get("baseColorTexture", {}).get("index")
+            if tex_idx is not None:
+                tex_to_mats.setdefault(tex_idx, []).append(mat.get("name", "?"))
+
+        result = []
+        for i, img in enumerate(images):
+            bv = self._vrm.glb.json_data["bufferViews"][img["bufferView"]]
+            result.append({
+                "index": i,
+                "name": img.get("name", f"image_{i}"),
+                "mimeType": img.get("mimeType", "image/png"),
+                "byteLength": bv["byteLength"],
+                "materials": tex_to_mats.get(i, []),
+            })
+        self._json_response(result)
+
+    def _serve_texture(self, path: str) -> None:
+        idx = int(path.rsplit("/", 1)[-1])
+        try:
+            data = self._vrm.glb.extract_image(idx)
+        except IndexError:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        images = self._vrm.glb.json_data.get("images", [])
+        mime = images[idx].get("mimeType", "image/png")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _replace_texture(self, path: str, body: bytes) -> None:
+        idx = int(path.rsplit("/", 1)[-1])
+        try:
+            self._vrm.glb.replace_image(idx, body)
+            self._vrm.save(self._vrm_path)
+            self._vrm = Vrm.load(self._vrm_path)
+            self._json_response({"ok": True})
+        except (IndexError, Exception) as e:
+            self.send_response(HTTPStatus.BAD_REQUEST)
+            self._json_response({"error": str(e)})
 
     def _serve_vrm_file(self) -> None:
         data = self._vrm_path.read_bytes()

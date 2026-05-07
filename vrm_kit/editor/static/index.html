@@ -31,7 +31,6 @@ body {
   display: flex;
 }
 
-/* ---- Viewport ---- */
 #viewport { flex: 1; position: relative; }
 canvas { display: block; width: 100%; height: 100%; }
 #viewport-overlay {
@@ -50,7 +49,15 @@ canvas { display: block; width: 100%; height: 100%; }
 }
 .view-btn:hover { color: var(--text); border-color: var(--accent); }
 
-/* ---- Side panel ---- */
+#recolor-hint {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,255,153,0.9); color: #000; padding: 8px 20px;
+  border-radius: var(--radius); font-weight: 600; font-size: 13px;
+  display: none; pointer-events: none;
+}
+#viewport.recolor-mode { cursor: crosshair; }
+#viewport.recolor-mode #recolor-hint { display: block; }
+
 #panel {
   width: 380px;
   background: var(--panel);
@@ -59,248 +66,159 @@ canvas { display: block; width: 100%; height: 100%; }
   flex-direction: column;
   overflow: hidden;
 }
-
-/* Header */
 .panel-header {
-  padding: 10px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  border-bottom: 1px solid var(--border);
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  padding: 10px 16px; font-size: 14px; font-weight: 600;
+  border-bottom: 1px solid var(--border); color: var(--accent);
+  display: flex; align-items: center; justify-content: space-between;
 }
 .panel-header .save-btn {
-  padding: 4px 14px;
-  background: var(--accent);
-  color: #000;
-  border: none;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 4px 14px; background: var(--accent); color: #000;
+  border: none; border-radius: var(--radius); cursor: pointer;
+  font-size: 12px; font-weight: 600;
 }
 .panel-header .save-btn:hover { opacity: 0.85; }
 
-/* Tabs */
-.tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel2);
-}
+.tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--panel2); }
 .tab {
-  flex: 1;
-  padding: 10px 4px;
-  text-align: center;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  color: var(--dim);
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.15s;
+  flex: 1; padding: 10px 4px; text-align: center; cursor: pointer;
+  border-bottom: 2px solid transparent; color: var(--dim);
+  font-size: 12px; font-weight: 500; transition: all 0.15s;
 }
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
 .tab-content { display: none; flex: 1; overflow-y: auto; }
 .tab-content.active { display: block; }
-
-/* Scrollbar */
 .tab-content::-webkit-scrollbar { width: 5px; }
 .tab-content::-webkit-scrollbar-track { background: transparent; }
 .tab-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-/* ---- Parts tab ---- */
 .part-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  transition: background 0.1s;
-  gap: 10px;
+  display: flex; align-items: center; padding: 8px 16px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+  transition: background 0.1s; gap: 10px;
 }
 .part-item:hover { background: var(--hover); }
 .part-item.selected { background: var(--accent-dim); }
 .part-toggle {
-  width: 18px; height: 18px;
-  border: 1.5px solid var(--dim);
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--accent);
-  transition: all 0.1s;
+  width: 18px; height: 18px; border: 1.5px solid var(--dim);
+  border-radius: 3px; display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0; cursor: pointer;
+  font-size: 12px; color: var(--accent); transition: all 0.1s;
 }
 .part-toggle.on { border-color: var(--accent); background: var(--accent-dim); }
 .part-toggle.on::after { content: "\2713"; }
 .part-name { flex: 1; font-size: 13px; }
 .part-info { font-size: 11px; color: var(--dim); }
 
-/* ---- Category sections ---- */
-.category {
-  border-bottom: 1px solid var(--border);
-}
+.category { border-bottom: 1px solid var(--border); }
 .category-header {
-  display: flex;
-  align-items: center;
-  padding: 10px 16px;
-  cursor: pointer;
-  user-select: none;
-  gap: 8px;
-  font-weight: 500;
-  font-size: 13px;
-  color: var(--accent2);
+  display: flex; align-items: center; padding: 10px 16px;
+  cursor: pointer; user-select: none; gap: 8px;
+  font-weight: 500; font-size: 13px; color: var(--accent2);
   background: var(--panel2);
 }
 .category-header:hover { background: var(--hover); }
-.category-arrow {
-  font-size: 10px;
-  transition: transform 0.15s;
-  color: var(--dim);
-}
+.category-arrow { font-size: 10px; transition: transform 0.15s; color: var(--dim); }
 .category.collapsed .category-arrow { transform: rotate(-90deg); }
 .category.collapsed .category-body { display: none; }
 .category-body { padding: 6px 0; }
-.category-count {
-  font-size: 11px;
-  color: var(--dim);
-  margin-left: auto;
-}
+.category-count { font-size: 11px; color: var(--dim); margin-left: auto; }
 
-/* ---- Sliders ---- */
 .slider-row {
-  display: flex;
-  align-items: center;
-  padding: 3px 16px 3px 24px;
-  gap: 8px;
+  display: flex; align-items: center; padding: 3px 16px 3px 24px; gap: 8px;
 }
 .slider-row label {
-  min-width: 110px;
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dim);
-  flex-shrink: 0;
-  cursor: default;
+  min-width: 110px; font-size: 11px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; color: var(--dim); flex-shrink: 0;
 }
 .slider-row label:hover { color: var(--text); }
-.slider-row input[type="range"] {
-  flex: 1;
-  accent-color: var(--accent);
-  height: 3px;
-  cursor: pointer;
-}
+.slider-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 3px; }
 .slider-row .val {
-  min-width: 30px;
-  text-align: right;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--accent);
+  min-width: 30px; text-align: right; font-size: 11px;
+  font-variant-numeric: tabular-nums; color: var(--accent);
 }
 .slider-row.modified label { color: var(--accent); }
 
-/* ---- Color picker ---- */
 .color-row {
-  display: flex;
-  align-items: center;
-  padding: 6px 16px 6px 24px;
-  gap: 10px;
+  display: flex; align-items: center; padding: 6px 16px 6px 24px; gap: 10px;
 }
-.color-row label {
-  min-width: 80px;
-  font-size: 12px;
-  color: var(--dim);
-}
+.color-row label { min-width: 80px; font-size: 12px; color: var(--dim); }
 .color-swatch {
-  width: 28px; height: 28px;
-  border-radius: 4px;
-  border: 2px solid var(--border);
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
+  width: 28px; height: 28px; border-radius: 4px;
+  border: 2px solid var(--border); cursor: pointer;
+  position: relative; overflow: hidden;
 }
 .color-swatch input[type="color"] {
-  position: absolute;
-  inset: -4px;
-  width: 36px; height: 36px;
-  border: none;
-  cursor: pointer;
-  opacity: 0;
+  position: absolute; inset: -4px; width: 36px; height: 36px;
+  border: none; cursor: pointer; opacity: 0;
 }
-.color-hex {
-  font-size: 11px;
-  color: var(--dim);
-  font-family: monospace;
-}
+.color-hex { font-size: 11px; color: var(--dim); font-family: monospace; }
 
-/* ---- Search ---- */
-.search-box {
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
-}
+.search-box { padding: 8px 16px; border-bottom: 1px solid var(--border); }
 .search-box input {
-  width: 100%;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 7px 10px;
-  border-radius: var(--radius);
-  font-size: 12px;
+  width: 100%; background: var(--input-bg); border: 1px solid var(--border);
+  color: var(--text); padding: 7px 10px; border-radius: var(--radius); font-size: 12px;
 }
 .search-box input:focus { outline: none; border-color: var(--accent2); }
-.search-box input::placeholder { color: var(--dim); }
 
-/* ---- Meta fields ---- */
-.field {
-  display: flex;
-  align-items: center;
-  padding: 5px 16px;
-  gap: 10px;
-}
-.field label {
-  min-width: 100px;
-  font-size: 12px;
-  color: var(--dim);
-}
+.field { display: flex; align-items: center; padding: 5px 16px; gap: 10px; }
+.field label { min-width: 100px; font-size: 12px; color: var(--dim); }
 .field input[type="text"] {
-  flex: 1;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 5px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  flex: 1; background: var(--input-bg); border: 1px solid var(--border);
+  color: var(--text); padding: 5px 8px; border-radius: 4px; font-size: 12px;
 }
 .field input:focus { outline: none; border-color: var(--accent2); }
 
-/* ---- Status / Toast ---- */
-#status {
-  padding: 6px 16px;
-  font-size: 11px;
-  color: var(--dim);
+/* Recolor panel */
+.recolor-panel { padding: 12px 16px; }
+.recolor-panel .instruction {
+  padding: 10px; background: var(--panel2); border-radius: var(--radius);
+  color: var(--dim); font-size: 12px; line-height: 1.5; margin-bottom: 10px;
+}
+.sampled-color-preview {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+}
+.sampled-swatch {
+  width: 40px; height: 40px; border-radius: var(--radius);
+  border: 2px solid var(--border);
+}
+.recolor-controls { display: none; }
+.recolor-controls.active { display: block; }
+.recolor-actions {
+  display: flex; gap: 8px; margin-top: 12px; padding-top: 12px;
   border-top: 1px solid var(--border);
-  flex-shrink: 0;
+}
+.recolor-actions button {
+  flex: 1; padding: 8px; border-radius: var(--radius); cursor: pointer;
+  font-size: 12px; font-weight: 600; border: 1px solid var(--border);
+}
+.recolor-actions .apply-btn {
+  background: var(--accent); color: #000; border-color: var(--accent);
+}
+.recolor-actions .reset-btn {
+  background: var(--input-bg); color: var(--text);
+}
+
+/* Texture preview in recolor */
+.texture-preview {
+  margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;
+}
+.texture-preview canvas {
+  width: 100%; border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.texture-preview .tex-name { font-size: 11px; color: var(--dim); margin-bottom: 6px; }
+
+#status {
+  padding: 6px 16px; font-size: 11px; color: var(--dim);
+  border-top: 1px solid var(--border); flex-shrink: 0;
 }
 .toast {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
+  position: fixed; bottom: 24px; left: 50%;
   transform: translateX(-50%) translateY(20px);
-  background: var(--accent);
-  color: #000;
-  padding: 8px 24px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  font-weight: 600;
-  opacity: 0;
-  transition: all 0.25s;
-  z-index: 100;
-  pointer-events: none;
+  background: var(--accent); color: #000; padding: 8px 24px;
+  border-radius: var(--radius); font-size: 13px; font-weight: 600;
+  opacity: 0; transition: all 0.25s; z-index: 100; pointer-events: none;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
@@ -316,6 +234,7 @@ canvas { display: block; width: 100%; height: 100%; }
     <button class="view-btn" data-view="side">Side</button>
     <button class="view-btn" data-view="back">Back</button>
   </div>
+  <div id="recolor-hint">Click on the model to pick a color</div>
 </div>
 
 <div id="panel">
@@ -325,41 +244,76 @@ canvas { display: block; width: 100%; height: 100%; }
   </div>
 
   <div class="tabs">
-    <div class="tab active" data-tab="parts">Parts</div>
+    <div class="tab" data-tab="parts">Parts</div>
     <div class="tab" data-tab="shape">Shape</div>
     <div class="tab" data-tab="face">Face</div>
+    <div class="tab active" data-tab="recolor">Recolor</div>
     <div class="tab" data-tab="material">Material</div>
     <div class="tab" data-tab="meta">Meta</div>
   </div>
 
-  <!-- Parts: mesh visibility + per-mesh shape keys -->
-  <div id="tab-parts" class="tab-content active">
-    <div id="parts-list"></div>
-  </div>
-
-  <!-- Shape: body proportion shape keys -->
+  <div id="tab-parts" class="tab-content"><div id="parts-list"></div></div>
   <div id="tab-shape" class="tab-content">
     <div class="search-box"><input type="text" id="shape-search" placeholder="Search body shape keys..."></div>
     <div id="shape-categories"></div>
   </div>
-
-  <!-- Face: expression / face shape keys -->
   <div id="tab-face" class="tab-content">
     <div class="search-box"><input type="text" id="face-search" placeholder="Search face shape keys..."></div>
     <div id="face-categories"></div>
   </div>
 
-  <!-- Material -->
-  <div id="tab-material" class="tab-content">
-    <div id="material-list"></div>
-  </div>
+  <!-- Recolor tab -->
+  <div id="tab-recolor" class="tab-content active">
+    <div class="recolor-panel">
+      <div class="instruction">
+        3D model on the left to pick a color, then adjust the sliders to recolor.
+        Works for eyes, hair, skin, clothing, etc.
+      </div>
 
-  <!-- Meta -->
-  <div id="tab-meta" class="tab-content">
-    <div style="padding:10px 0">
-      <div id="meta-fields"></div>
+      <div class="sampled-color-preview">
+        <div class="sampled-swatch" id="sampled-swatch"></div>
+        <div>
+          <div id="sampled-label" style="font-size:12px;color:var(--dim)">No color selected</div>
+          <div id="sampled-hex" style="font-size:11px;font-family:monospace;color:var(--accent)"></div>
+        </div>
+      </div>
+
+      <div class="recolor-controls" id="recolor-controls">
+        <div class="slider-row">
+          <label>Hue Shift</label>
+          <input type="range" id="rc-hue" min="-180" max="180" value="0">
+          <span class="val" id="rc-hue-val">0</span>
+        </div>
+        <div class="slider-row">
+          <label>Saturation</label>
+          <input type="range" id="rc-sat" min="-100" max="100" value="0">
+          <span class="val" id="rc-sat-val">0</span>
+        </div>
+        <div class="slider-row">
+          <label>Brightness</label>
+          <input type="range" id="rc-bri" min="-100" max="100" value="0">
+          <span class="val" id="rc-bri-val">0</span>
+        </div>
+        <div class="slider-row">
+          <label>Tolerance</label>
+          <input type="range" id="rc-tol" min="5" max="80" value="30">
+          <span class="val" id="rc-tol-val">30</span>
+        </div>
+        <div class="recolor-actions">
+          <button class="reset-btn" id="rc-reset">Reset</button>
+          <button class="apply-btn" id="rc-apply">Apply & Save</button>
+        </div>
+      </div>
+
+      <div class="texture-preview" id="texture-preview">
+        <div class="tex-name" id="tex-preview-name"></div>
+        <canvas id="tex-preview-canvas"></canvas>
+      </div>
     </div>
   </div>
+
+  <div id="tab-material" class="tab-content"><div id="material-list"></div></div>
+  <div id="tab-meta" class="tab-content"><div style="padding:10px 0"><div id="meta-fields"></div></div></div>
 
   <div id="status">Loading...</div>
 </div>
@@ -385,10 +339,18 @@ const { VRMLoaderPlugin, VRMUtils } = VRMModule;
 
 // ---- State ----
 let vrm = null;
-let gltf = null;
+let gltfData = null;
 const clock = new THREE.Clock();
-const modifiedWeights = {};   // meshIdx -> { skName: value }
-const modifiedMaterials = {}; // matIdx  -> { baseColor: [r,g,b,a] }
+const modifiedWeights = {};
+const modifiedMaterials = {};
+
+// Recolor state
+let recolorMode = true;
+let sampledColor = null;
+let sampledTexInfo = null;  // { mesh, material, texIndex, imageIndex }
+let originalTexData = null; // ImageData of original texture
+const recolorCanvas = document.createElement('canvas');
+const recolorCtx = recolorCanvas.getContext('2d', { willReadFrequently: true });
 
 // ---- Three.js ----
 const canvas = document.getElementById('canvas');
@@ -409,18 +371,16 @@ controls.target.set(0, 1.0, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 
-// Lights
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
 dirLight.position.set(1, 3, -3);
 scene.add(dirLight);
-const dirLight2 = new THREE.DirectionalLight(0xaabbff, 0.4);
-dirLight2.position.set(-2, 1, 2);
-scene.add(dirLight2);
+scene.add(new THREE.DirectionalLight(0xaabbff, 0.4)).position.set(-2, 1, 2);
 scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
-// Grid
 const grid = new THREE.GridHelper(10, 20, 0x222240, 0x1a1a30);
 scene.add(grid);
+
+const raycaster = new THREE.Raycaster();
 
 function resize() {
   const vp = document.getElementById('viewport');
@@ -435,33 +395,67 @@ resize();
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 function showToast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
+  t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2000);
 }
 
-// ---- Camera views ----
+// ---- Color conversion ----
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0, l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return [h * 360, s * 100, l * 100];
+}
+
+function hslToRgb(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  s = Math.max(0, Math.min(100, s)) / 100;
+  l = Math.max(0, Math.min(100, l)) / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+function hueDist(h1, h2) {
+  const d = Math.abs(h1 - h2);
+  return Math.min(d, 360 - d);
+}
+
+// ---- Camera ----
 function moveCameraTo(pos, target) {
-  camera.position.set(...pos);
-  controls.target.set(...target);
-  controls.update();
+  camera.position.set(...pos); controls.target.set(...target); controls.update();
 }
 function getModelBounds() {
-  if (!vrm) return { center: [0, 1, 0], size: [1, 1.6, 1] };
+  if (!vrm) return { center: [0,1,0], size: [1,1.6,1] };
   const box = new THREE.Box3().setFromObject(vrm.scene);
   const c = box.getCenter(new THREE.Vector3());
   const s = box.getSize(new THREE.Vector3());
-  return { center: [c.x, c.y, c.z], size: [s.x, s.y, s.z] };
+  return { center: [c.x,c.y,c.z], size: [s.x,s.y,s.z] };
 }
 document.querySelectorAll('[data-view]').forEach(btn => {
   btn.addEventListener('click', () => {
     const { center: c, size: s } = getModelBounds();
     const views = {
-      full:  () => moveCameraTo([c[0], c[1]+s[1]*0.1, c[2]-s[1]*1.4], c),
-      face:  () => moveCameraTo([c[0], c[1]+s[1]*0.36, c[2]-0.55], [c[0], c[1]+s[1]*0.36, c[2]]),
-      front: () => moveCameraTo([c[0], c[1], c[2]-s[1]*1.2], c),
-      side:  () => moveCameraTo([c[0]-s[1]*1.2, c[1], c[2]], c),
-      back:  () => moveCameraTo([c[0], c[1], c[2]+s[1]*1.2], c),
+      full:  () => moveCameraTo([c[0],c[1]+s[1]*0.1,c[2]-s[1]*1.4], c),
+      face:  () => moveCameraTo([c[0],c[1]+s[1]*0.36,c[2]-0.55], [c[0],c[1]+s[1]*0.36,c[2]]),
+      front: () => moveCameraTo([c[0],c[1],c[2]-s[1]*1.2], c),
+      side:  () => moveCameraTo([c[0]-s[1]*1.2,c[1],c[2]], c),
+      back:  () => moveCameraTo([c[0],c[1],c[2]+s[1]*1.2], c),
     };
     views[btn.dataset.view]?.();
   });
@@ -474,10 +468,243 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+    recolorMode = tab.dataset.tab === 'recolor';
+    document.getElementById('viewport').classList.toggle('recolor-mode', recolorMode);
   });
 });
+// Init recolor mode active
+document.getElementById('viewport').classList.add('recolor-mode');
 
-// ---- Shape key categorization ----
+// ================ RECOLOR TOOL ================
+
+// Click on 3D model -> sample color
+canvas.addEventListener('click', (e) => {
+  if (!recolorMode || !vrm) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObject(vrm.scene, true);
+  if (!hits.length) return;
+
+  const hit = hits[0];
+  if (!hit.uv) return;
+
+  const mesh = hit.object;
+  const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  const tex = mat?.map;
+  if (!tex?.image) return;
+
+  // Sample color from texture at UV
+  const img = tex.image;
+  recolorCanvas.width = img.width;
+  recolorCanvas.height = img.height;
+  recolorCtx.drawImage(img, 0, 0);
+
+  const px = Math.floor(hit.uv.x * img.width);
+  const py = Math.floor((1 - hit.uv.y) * img.height);
+  const pixel = recolorCtx.getImageData(px, py, 1, 1).data;
+
+  // Store original texture data
+  originalTexData = recolorCtx.getImageData(0, 0, img.width, img.height);
+
+  // Find texture/image index
+  const texIndex = findTextureIndex(mat);
+
+  sampledColor = { r: pixel[0], g: pixel[1], b: pixel[2] };
+  sampledTexInfo = { mesh, material: mat, texture: tex, texIndex, image: img };
+
+  // Update UI
+  const hex = `#${pixel[0].toString(16).padStart(2,'0')}${pixel[1].toString(16).padStart(2,'0')}${pixel[2].toString(16).padStart(2,'0')}`;
+  document.getElementById('sampled-swatch').style.background = hex;
+  document.getElementById('sampled-hex').textContent = hex;
+  document.getElementById('sampled-label').textContent = `${mat.name || mesh.name} (${img.width}x${img.height})`;
+  document.getElementById('recolor-controls').classList.add('active');
+
+  // Reset sliders
+  for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
+    document.getElementById(id).value = '0';
+    document.getElementById(id + '-val').textContent = '0';
+  }
+
+  // Show texture preview
+  updateTexturePreview();
+});
+
+function findTextureIndex(mat) {
+  if (!gltfData?.parser?.json?.materials) return -1;
+  const gltfMats = gltfData.parser.json.materials;
+  for (let i = 0; i < gltfMats.length; i++) {
+    if (gltfMats[i].name === mat.name) {
+      return gltfMats[i]?.pbrMetallicRoughness?.baseColorTexture?.index ?? -1;
+    }
+  }
+  return -1;
+}
+
+function updateTexturePreview() {
+  if (!originalTexData) return;
+  const previewCanvas = document.getElementById('tex-preview-canvas');
+  const w = originalTexData.width;
+  const h = originalTexData.height;
+  const aspect = w / h;
+  previewCanvas.width = 340;
+  previewCanvas.height = 340 / aspect;
+  const ctx = previewCanvas.getContext('2d');
+
+  // Draw the current recolored version
+  recolorCanvas.width = w;
+  recolorCanvas.height = h;
+  const modified = applyRecolor(originalTexData);
+  recolorCtx.putImageData(modified, 0, 0);
+  ctx.drawImage(recolorCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+
+  const name = sampledTexInfo?.material?.name || 'Texture';
+  document.getElementById('tex-preview-name').textContent = name;
+}
+
+function applyRecolor(srcData) {
+  if (!sampledColor) return srcData;
+
+  const hueShift = parseInt(document.getElementById('rc-hue').value);
+  const satShift = parseInt(document.getElementById('rc-sat').value);
+  const briShift = parseInt(document.getElementById('rc-bri').value);
+  const tolerance = parseInt(document.getElementById('rc-tol').value);
+
+  const [sH, sS, sL] = rgbToHsl(sampledColor.r, sampledColor.g, sampledColor.b);
+
+  const dst = new ImageData(
+    new Uint8ClampedArray(srcData.data),
+    srcData.width, srcData.height
+  );
+  const d = dst.data;
+
+  for (let i = 0; i < d.length; i += 4) {
+    const a = d[i + 3];
+    if (a < 10) continue; // skip transparent
+
+    const [h, s, l] = rgbToHsl(d[i], d[i+1], d[i+2]);
+
+    // Check if this pixel is "similar" to sampled color
+    const hDist = hueDist(h, sH);
+    const sDist = Math.abs(s - sS);
+    const lDist = Math.abs(l - sL);
+
+    // Weighted similarity: hue matters most, then sat, then lightness
+    const similarity = hDist * 1.0 + sDist * 0.3 + lDist * 0.2;
+
+    if (similarity <= tolerance) {
+      // Apply shift with falloff
+      const falloff = 1 - (similarity / tolerance);
+      const newH = h + hueShift * falloff;
+      const newS = s + satShift * falloff;
+      const newL = l + briShift * falloff * 0.5;
+      const [nr, ng, nb] = hslToRgb(newH, newS, newL);
+      d[i] = nr; d[i+1] = ng; d[i+2] = nb;
+    }
+  }
+
+  return dst;
+}
+
+function applyRecolorToThreeTexture() {
+  if (!originalTexData || !sampledTexInfo) return;
+
+  recolorCanvas.width = originalTexData.width;
+  recolorCanvas.height = originalTexData.height;
+  const modified = applyRecolor(originalTexData);
+  recolorCtx.putImageData(modified, 0, 0);
+
+  // Update three.js texture
+  const tex = sampledTexInfo.texture;
+  const newImg = new Image();
+  newImg.onload = () => {
+    tex.image = newImg;
+    tex.needsUpdate = true;
+  };
+  newImg.src = recolorCanvas.toDataURL('image/png');
+}
+
+// Slider live preview
+for (const id of ['rc-hue', 'rc-sat', 'rc-bri', 'rc-tol']) {
+  document.getElementById(id).addEventListener('input', (e) => {
+    document.getElementById(id + '-val').textContent = e.target.value;
+    applyRecolorToThreeTexture();
+    updateTexturePreview();
+  });
+}
+
+// Reset
+document.getElementById('rc-reset').addEventListener('click', () => {
+  for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
+    document.getElementById(id).value = '0';
+    document.getElementById(id + '-val').textContent = '0';
+  }
+  // Restore original texture
+  if (originalTexData && sampledTexInfo) {
+    recolorCanvas.width = originalTexData.width;
+    recolorCanvas.height = originalTexData.height;
+    recolorCtx.putImageData(originalTexData, 0, 0);
+    const tex = sampledTexInfo.texture;
+    const newImg = new Image();
+    newImg.onload = () => { tex.image = newImg; tex.needsUpdate = true; };
+    newImg.src = recolorCanvas.toDataURL('image/png');
+  }
+  updateTexturePreview();
+});
+
+// Apply & Save to VRM
+document.getElementById('rc-apply').addEventListener('click', async () => {
+  if (!originalTexData || !sampledTexInfo) return;
+
+  // Get the modified texture as PNG
+  recolorCanvas.width = originalTexData.width;
+  recolorCanvas.height = originalTexData.height;
+  const modified = applyRecolor(originalTexData);
+  recolorCtx.putImageData(modified, 0, 0);
+
+  const blob = await new Promise(r => recolorCanvas.toBlob(r, 'image/png'));
+
+  // Find the image index for this texture
+  const texIndex = sampledTexInfo.texIndex;
+  if (texIndex < 0) {
+    showToast('Could not find texture index');
+    return;
+  }
+  const gltfTextures = gltfData.parser.json.textures || [];
+  const imageIndex = gltfTextures[texIndex]?.source ?? -1;
+  if (imageIndex < 0) {
+    showToast('Could not find image index');
+    return;
+  }
+
+  // Send modified PNG to server
+  const arrayBuf = await blob.arrayBuffer();
+  const resp = await fetch(`/api/texture/${imageIndex}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png' },
+    body: arrayBuf,
+  });
+
+  if (resp.ok) {
+    // Update the original data so further edits stack correctly
+    originalTexData = recolorCtx.getImageData(0, 0, recolorCanvas.width, recolorCanvas.height);
+    // Reset sliders
+    for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
+      document.getElementById(id).value = '0';
+      document.getElementById(id + '-val').textContent = '0';
+    }
+    showToast('Texture saved to VRM');
+  } else {
+    showToast('Save failed');
+  }
+});
+
+// ================ SHAPE KEY CATEGORIZATION ================
+
 const FACE_CATEGORIES = {
   'Eyes':      /^(eye_|Eye_|LowerEyelid|highlight_|eyelash_|eyelid_|eye[_\s])/i,
   'Mouth':     /^(mouth_|A$|I$|U$|E$|O$|A_|I_|U_|E_|O_|bero_|yaeba|gizaba|upper_tooth|lower_tooth)/i,
@@ -487,7 +714,6 @@ const FACE_CATEGORIES = {
   'Lip Sync':  /^vrc\./i,
   'MMD':       /^(まばたき|笑い|ウィンク|なごみ|びっくり|じと目|ｷﾘ|星目|はぁと|瞳|光下|ハイライト|恐ろしい|Λ|▲|ワ|ω|□|はん|ん$|あ２|えー|にやり|にっこり|ぺろ|口角|真面目|困る|にこり|怒り|上$|下$|照れ|涙|はちゅ)/,
 };
-
 const BODY_CATEGORIES = {
   'Chest':     /^(Breasts?_|Nipple_|Bra_)/i,
   'Body':      /^(Waist_|Foot_|Nail_|Shoulder_OFF|face_|jaw_)/i,
@@ -499,409 +725,203 @@ const BODY_CATEGORIES = {
 };
 
 function categorize(name, rules) {
-  for (const [cat, re] of Object.entries(rules)) {
-    if (re.test(name)) return cat;
-  }
+  for (const [cat, re] of Object.entries(rules)) { if (re.test(name)) return cat; }
   return 'Other';
 }
 
-// ---- Collect mesh info ----
+// ================ UI BUILDERS ================
+
 function collectMeshes() {
   const meshes = [];
   if (!vrm) return meshes;
-
   vrm.scene.traverse((obj) => {
     if (obj.isMesh || obj.isSkinnedMesh) {
-      const info = {
-        name: obj.name,
-        object: obj,
-        visible: obj.visible,
+      const info = { name: obj.name, object: obj, visible: obj.visible,
         vertices: obj.geometry?.attributes?.position?.count || 0,
-        shapeKeys: [],
-        materials: [],
-      };
-
-      // Shape keys
+        shapeKeys: [], materials: [] };
       if (obj.morphTargetDictionary) {
         for (const [name, idx] of Object.entries(obj.morphTargetDictionary)) {
-          info.shapeKeys.push({
-            name,
-            index: idx,
-            value: obj.morphTargetInfluences?.[idx] || 0,
-          });
+          info.shapeKeys.push({ name, index: idx, value: obj.morphTargetInfluences?.[idx] || 0 });
         }
         info.shapeKeys.sort((a, b) => a.name.localeCompare(b.name));
       }
-
-      // Materials
-      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-      info.materials = mats.filter(Boolean);
-
+      info.materials = (Array.isArray(obj.material) ? obj.material : [obj.material]).filter(Boolean);
       meshes.push(info);
     }
   });
-
   meshes.sort((a, b) => a.name.localeCompare(b.name));
   return meshes;
 }
 
-// ---- Build Parts tab ----
 function buildParts(meshes) {
-  const container = document.getElementById('parts-list');
-  container.innerHTML = '';
-
+  const c = document.getElementById('parts-list'); c.innerHTML = '';
   for (const mesh of meshes) {
-    const item = document.createElement('div');
-    item.className = 'part-item';
-
-    // Visibility toggle
+    const item = document.createElement('div'); item.className = 'part-item';
     const toggle = document.createElement('div');
     toggle.className = `part-toggle ${mesh.visible ? 'on' : ''}`;
     toggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      mesh.object.visible = !mesh.object.visible;
+      e.stopPropagation(); mesh.object.visible = !mesh.object.visible;
       toggle.classList.toggle('on');
     });
-
-    const name = document.createElement('span');
-    name.className = 'part-name';
-    name.textContent = mesh.name;
-
-    const info = document.createElement('span');
-    info.className = 'part-info';
-    const sk = mesh.shapeKeys.length;
-    info.textContent = `${mesh.vertices.toLocaleString()}v` + (sk ? ` / ${sk}sk` : '');
-
-    item.append(toggle, name, info);
-    container.appendChild(item);
-
-    // Click to expand per-mesh shape keys
+    const name = document.createElement('span'); name.className = 'part-name'; name.textContent = mesh.name;
+    const info = document.createElement('span'); info.className = 'part-info';
+    info.textContent = `${mesh.vertices.toLocaleString()}v` + (mesh.shapeKeys.length ? ` / ${mesh.shapeKeys.length}sk` : '');
+    item.append(toggle, name, info); c.appendChild(item);
     item.addEventListener('click', () => {
-      document.querySelectorAll('.part-item').forEach(p => p.classList.remove('selected'));
+      c.querySelectorAll('.part-item').forEach(p => p.classList.remove('selected'));
       item.classList.add('selected');
-      buildPartShapeKeys(mesh, container, item);
-    });
-  }
-}
-
-function buildPartShapeKeys(mesh, container, afterElem) {
-  // Remove any existing inline detail
-  container.querySelectorAll('.part-detail').forEach(d => d.remove());
-  if (!mesh.shapeKeys.length) return;
-
-  const detail = document.createElement('div');
-  detail.className = 'part-detail';
-  detail.style.background = 'var(--panel2)';
-  detail.style.borderBottom = '1px solid var(--border)';
-  detail.style.padding = '6px 0';
-
-  for (const sk of mesh.shapeKeys) {
-    if (sk.name === 'Basis') continue;
-    const row = makeSlider(sk.name, sk.value, (v) => {
-      mesh.object.morphTargetInfluences[sk.index] = v;
-      trackWeight(mesh, sk.name, v);
-    });
-    detail.appendChild(row);
-  }
-
-  afterElem.after(detail);
-}
-
-// ---- Build Body Shape tab ----
-function buildShapeTab(meshes) {
-  const container = document.getElementById('shape-categories');
-  container.innerHTML = '';
-
-  const grouped = {};
-  for (const mesh of meshes) {
-    for (const sk of mesh.shapeKeys) {
-      if (sk.name === 'Basis') continue;
-      // Skip face-related shape keys (they go in Face tab)
-      const faceCat = categorize(sk.name, FACE_CATEGORIES);
-      if (faceCat !== 'Other' && mesh.name !== 'Body_Base') continue;
-
-      const cat = categorize(sk.name, BODY_CATEGORIES);
-      if (cat === 'Other' && categorize(sk.name, FACE_CATEGORIES) !== 'Other') continue;
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push({ ...sk, mesh });
-    }
-  }
-
-  for (const [cat, items] of Object.entries(grouped)) {
-    if (!items.length) continue;
-    const section = makeCategory(cat, items.length, (body) => {
-      for (const item of items) {
-        const row = makeSlider(
-          `${item.name}`,
-          item.value,
-          (v) => {
-            item.mesh.object.morphTargetInfluences[item.index] = v;
-            trackWeight(item.mesh, item.name, v);
-          },
-          item.mesh.name,
-        );
-        body.appendChild(row);
+      c.querySelectorAll('.part-detail').forEach(d => d.remove());
+      if (!mesh.shapeKeys.length) return;
+      const detail = document.createElement('div'); detail.className = 'part-detail';
+      detail.style.cssText = 'background:var(--panel2);border-bottom:1px solid var(--border);padding:6px 0';
+      for (const sk of mesh.shapeKeys) {
+        if (sk.name === 'Basis') continue;
+        detail.appendChild(makeSlider(sk.name, sk.value, (v) => {
+          mesh.object.morphTargetInfluences[sk.index] = v;
+          trackWeight(mesh, sk.name, v);
+        }));
       }
+      item.after(detail);
     });
-    container.appendChild(section);
   }
 }
 
-// ---- Build Face tab ----
-function buildFaceTab(meshes) {
-  const container = document.getElementById('face-categories');
-  container.innerHTML = '';
-
-  // Also include VRM expressions
-  if (vrm?.expressionManager) {
-    const exprSection = makeCategory('VRM Expressions', vrm.expressionManager.expressions.length, (body) => {
+function buildGroupedTab(meshes, containerId, faceRules, bodyRules, isFace) {
+  const c = document.getElementById(containerId); c.innerHTML = '';
+  if (isFace && vrm?.expressionManager) {
+    c.appendChild(makeCategory('VRM Expressions', vrm.expressionManager.expressions.length, (body) => {
       for (const expr of vrm.expressionManager.expressions) {
-        const row = makeSlider(expr.expressionName, 0, (v) => {
-          vrm.expressionManager.setValue(expr.expressionName, v);
-        });
-        body.appendChild(row);
+        body.appendChild(makeSlider(expr.expressionName, 0, (v) => vrm.expressionManager.setValue(expr.expressionName, v)));
       }
-    });
-    container.appendChild(exprSection);
+    }));
   }
-
   const grouped = {};
   for (const mesh of meshes) {
     for (const sk of mesh.shapeKeys) {
       if (sk.name === 'Basis') continue;
-      const cat = categorize(sk.name, FACE_CATEGORIES);
-      if (cat === 'Other') continue;
+      const rules = isFace ? faceRules : bodyRules;
+      const cat = categorize(sk.name, rules);
+      if (isFace && cat === 'Other') continue;
+      if (!isFace) {
+        const fc = categorize(sk.name, faceRules);
+        if (fc !== 'Other' && mesh.name !== 'Body_Base') continue;
+      }
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push({ ...sk, mesh });
     }
   }
-
   for (const [cat, items] of Object.entries(grouped)) {
-    if (!items.length) continue;
-    const section = makeCategory(cat, items.length, (body) => {
+    c.appendChild(makeCategory(cat, items.length, (body) => {
       for (const item of items) {
-        const row = makeSlider(item.name, item.value, (v) => {
+        body.appendChild(makeSlider(item.name, item.value, (v) => {
           item.mesh.object.morphTargetInfluences[item.index] = v;
           trackWeight(item.mesh, item.name, v);
-        });
-        body.appendChild(row);
+        }, item.mesh.name));
       }
-    }, true); // collapsed by default
-    container.appendChild(section);
+    }, isFace));
   }
 }
 
-// ---- Build Material tab ----
 function buildMaterialTab(meshes) {
-  const container = document.getElementById('material-list');
-  container.innerHTML = '';
-
+  const c = document.getElementById('material-list'); c.innerHTML = '';
   const seen = new Set();
   for (const mesh of meshes) {
     for (const mat of mesh.materials) {
-      if (seen.has(mat.uuid)) continue;
-      seen.add(mat.uuid);
-
-      const section = document.createElement('div');
-      section.className = 'category';
-
-      const header = document.createElement('div');
-      header.className = 'category-header';
+      if (seen.has(mat.uuid)) continue; seen.add(mat.uuid);
+      const section = document.createElement('div'); section.className = 'category';
+      const header = document.createElement('div'); header.className = 'category-header';
       header.innerHTML = `<span class="category-arrow">&#9660;</span> ${mat.name || 'Material'}`;
       header.addEventListener('click', () => section.classList.toggle('collapsed'));
-
-      const body = document.createElement('div');
-      body.className = 'category-body';
-
-      // Base color
-      if (mat.color) {
-        const row = makeColorPicker('Base Color', mat.color, (color) => {
-          mat.color.copy(color);
-          trackMaterialColor(mat);
-        });
-        body.appendChild(row);
-      }
-
-      // Emissive
-      if (mat.emissive) {
-        const row = makeColorPicker('Emissive', mat.emissive, (color) => {
-          mat.emissive.copy(color);
-        });
-        body.appendChild(row);
-      }
-
-      // Opacity
-      if (mat.opacity !== undefined) {
-        const row = makeSlider('Opacity', mat.opacity, (v) => {
-          mat.opacity = v;
-          mat.transparent = v < 1;
-        });
-        body.appendChild(row);
-      }
-
-      section.append(header, body);
-      container.appendChild(section);
+      const body = document.createElement('div'); body.className = 'category-body';
+      if (mat.color) body.appendChild(makeColorPicker('Base Color', mat.color, (c) => { mat.color.copy(c); trackMaterialColor(mat); }));
+      if (mat.emissive) body.appendChild(makeColorPicker('Emissive', mat.emissive, (c) => mat.emissive.copy(c)));
+      if (mat.opacity !== undefined) body.appendChild(makeSlider('Opacity', mat.opacity, (v) => { mat.opacity = v; mat.transparent = v < 1; }));
+      section.append(header, body); c.appendChild(section);
     }
   }
 }
 
-// ---- Meta tab ----
 async function buildMetaTab() {
-  const resp = await fetch('/api/meta');
-  const meta = await resp.json();
-  const container = document.getElementById('meta-fields');
-  container.innerHTML = '';
+  const resp = await fetch('/api/meta'); const meta = await resp.json();
+  const c = document.getElementById('meta-fields'); c.innerHTML = '';
   for (const [key, val] of Object.entries(meta)) {
-    const div = document.createElement('div');
-    div.className = 'field';
-    const label = document.createElement('label');
-    label.textContent = key;
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.dataset.key = key;
+    const div = document.createElement('div'); div.className = 'field';
+    const label = document.createElement('label'); label.textContent = key;
+    const input = document.createElement('input'); input.type = 'text'; input.dataset.key = key;
     input.value = Array.isArray(val) ? val.join(', ') : (val ?? '');
-    div.append(label, input);
-    container.appendChild(div);
+    div.append(label, input); c.appendChild(div);
   }
 }
 
-// ---- UI component helpers ----
-function makeSlider(label, initialValue, onChange, tooltip) {
-  const row = document.createElement('div');
-  row.className = 'slider-row';
-  row.dataset.label = label.toLowerCase();
-
-  const lbl = document.createElement('label');
-  lbl.textContent = label;
-  if (tooltip) lbl.title = `${tooltip} / ${label}`;
-
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = '0';
-  slider.max = '100';
-  slider.value = String(Math.round(initialValue * 100));
-
-  const val = document.createElement('span');
-  val.className = 'val';
-  val.textContent = slider.value;
-
+// ---- Shared UI components ----
+function makeSlider(label, initVal, onChange, tooltip) {
+  const row = document.createElement('div'); row.className = 'slider-row'; row.dataset.label = label.toLowerCase();
+  const lbl = document.createElement('label'); lbl.textContent = label; if (tooltip) lbl.title = `${tooltip} / ${label}`;
+  const slider = document.createElement('input'); slider.type = 'range'; slider.min = '0'; slider.max = '100';
+  slider.value = String(Math.round(initVal * 100));
+  const val = document.createElement('span'); val.className = 'val'; val.textContent = slider.value;
   slider.addEventListener('input', () => {
-    const v = parseInt(slider.value) / 100;
-    onChange(v);
+    onChange(parseInt(slider.value) / 100);
     val.textContent = slider.value;
     row.classList.toggle('modified', parseInt(slider.value) !== 0);
   });
-
-  if (initialValue > 0) row.classList.add('modified');
-  row.append(lbl, slider, val);
-  return row;
+  if (initVal > 0) row.classList.add('modified');
+  row.append(lbl, slider, val); return row;
 }
 
 function makeCategory(title, count, buildFn, collapsed = false) {
-  const section = document.createElement('div');
-  section.className = `category${collapsed ? ' collapsed' : ''}`;
-
-  const header = document.createElement('div');
-  header.className = 'category-header';
-
-  const arrow = document.createElement('span');
-  arrow.className = 'category-arrow';
-  arrow.textContent = '\u25BC';
-
-  const titleSpan = document.createElement('span');
-  titleSpan.textContent = title;
-
-  const countSpan = document.createElement('span');
-  countSpan.className = 'category-count';
-  countSpan.textContent = count;
-
-  header.append(arrow, titleSpan, countSpan);
-
-  const body = document.createElement('div');
-  body.className = 'category-body';
-  buildFn(body);
-
+  const section = document.createElement('div'); section.className = `category${collapsed ? ' collapsed' : ''}`;
+  const header = document.createElement('div'); header.className = 'category-header';
+  header.innerHTML = `<span class="category-arrow">&#9660;</span><span>${title}</span><span class="category-count">${count}</span>`;
+  const body = document.createElement('div'); body.className = 'category-body'; buildFn(body);
   header.addEventListener('click', () => section.classList.toggle('collapsed'));
-
-  section.append(header, body);
-  return section;
+  section.append(header, body); return section;
 }
 
 function makeColorPicker(label, threeColor, onChange) {
-  const row = document.createElement('div');
-  row.className = 'color-row';
-
-  const lbl = document.createElement('label');
-  lbl.textContent = label;
-
-  const swatch = document.createElement('div');
-  swatch.className = 'color-swatch';
-  const hex = '#' + threeColor.getHexString();
-  swatch.style.background = hex;
-
-  const input = document.createElement('input');
-  input.type = 'color';
-  input.value = hex;
-
-  const hexLabel = document.createElement('span');
-  hexLabel.className = 'color-hex';
-  hexLabel.textContent = hex;
-
+  const row = document.createElement('div'); row.className = 'color-row';
+  const lbl = document.createElement('label'); lbl.textContent = label;
+  const swatch = document.createElement('div'); swatch.className = 'color-swatch';
+  const hex = '#' + threeColor.getHexString(); swatch.style.background = hex;
+  const input = document.createElement('input'); input.type = 'color'; input.value = hex;
+  const hexLabel = document.createElement('span'); hexLabel.className = 'color-hex'; hexLabel.textContent = hex;
   input.addEventListener('input', () => {
-    const c = new THREE.Color(input.value);
-    swatch.style.background = input.value;
-    hexLabel.textContent = input.value;
-    onChange(c);
+    swatch.style.background = input.value; hexLabel.textContent = input.value;
+    onChange(new THREE.Color(input.value));
   });
-
-  swatch.appendChild(input);
-  row.append(lbl, swatch, hexLabel);
-  return row;
+  swatch.appendChild(input); row.append(lbl, swatch, hexLabel); return row;
 }
 
-// ---- Search ----
 function setupSearch(inputId, containerId) {
   document.getElementById(inputId)?.addEventListener('input', (e) => {
     const q = e.target.value.toLowerCase();
-    const container = document.getElementById(containerId);
-    container.querySelectorAll('.slider-row').forEach(row => {
-      row.style.display = row.dataset.label?.includes(q) ? '' : 'none';
-    });
-    // Show categories that have visible sliders
-    container.querySelectorAll('.category').forEach(cat => {
-      const visible = cat.querySelectorAll('.slider-row:not([style*="display: none"])').length;
-      cat.style.display = visible ? '' : 'none';
-      if (q && visible) cat.classList.remove('collapsed');
+    const c = document.getElementById(containerId);
+    c.querySelectorAll('.slider-row').forEach(r => r.style.display = r.dataset.label?.includes(q) ? '' : 'none');
+    c.querySelectorAll('.category').forEach(cat => {
+      const vis = cat.querySelectorAll('.slider-row:not([style*="display: none"])').length;
+      cat.style.display = vis ? '' : 'none';
+      if (q && vis) cat.classList.remove('collapsed');
     });
   });
 }
 
-// ---- Track modifications for save ----
+// ---- Modification tracking ----
 function trackWeight(mesh, skName, value) {
-  // Find glTF mesh index
-  const meshIdx = findGltfMeshIndex(mesh);
-  if (meshIdx < 0) return;
-  if (!modifiedWeights[meshIdx]) modifiedWeights[meshIdx] = {};
-  modifiedWeights[meshIdx][skName] = value;
+  const idx = findGltfMeshIndex(mesh);
+  if (idx < 0) return;
+  if (!modifiedWeights[idx]) modifiedWeights[idx] = {};
+  modifiedWeights[idx][skName] = value;
 }
-
 function findGltfMeshIndex(meshInfo) {
-  if (!gltf) return -1;
-  const gltfMeshes = gltf.parser?.json?.meshes || [];
-  for (let i = 0; i < gltfMeshes.length; i++) {
-    if (gltfMeshes[i].name === meshInfo.name) return i;
-  }
+  const gm = gltfData?.parser?.json?.meshes || [];
+  for (let i = 0; i < gm.length; i++) { if (gm[i].name === meshInfo.name) return i; }
   return -1;
 }
-
 function trackMaterialColor(mat) {
-  if (!gltf) return;
-  const gltfMats = gltf.parser?.json?.materials || [];
-  for (let i = 0; i < gltfMats.length; i++) {
-    if (gltfMats[i].name === mat.name) {
-      modifiedMaterials[i] = {
-        baseColor: [mat.color.r, mat.color.g, mat.color.b, mat.opacity ?? 1],
-      };
+  const gm = gltfData?.parser?.json?.materials || [];
+  for (let i = 0; i < gm.length; i++) {
+    if (gm[i].name === mat.name) {
+      modifiedMaterials[i] = { baseColor: [mat.color.r, mat.color.g, mat.color.b, mat.opacity ?? 1] };
       break;
     }
   }
@@ -910,88 +930,42 @@ function trackMaterialColor(mat) {
 // ---- Save all ----
 document.getElementById('save-all').addEventListener('click', async () => {
   const payload = {};
-
-  // Weights: convert { meshIdx: { skName: val } } to { meshIdx: [weights...] }
   if (Object.keys(modifiedWeights).length) {
-    const weightsPayload = {};
-    const gltfMeshes = gltf.parser?.json?.meshes || [];
-    for (const [meshIdxStr, skMap] of Object.entries(modifiedWeights)) {
-      const meshIdx = parseInt(meshIdxStr);
-      const mesh = gltfMeshes[meshIdx];
-      if (!mesh) continue;
-      // Get current weights array (or create zeros)
-      const numTargets = mesh.primitives?.[0]?.targets?.length || 0;
-      const weights = mesh.weights ? [...mesh.weights] : new Array(numTargets).fill(0);
-      // Map shape key names to indices
-      const extras = mesh.extras?.targetNames || [];
-      const prims = mesh.primitives || [];
-      // Build name -> index from gltf
-      const nameMap = {};
-      if (extras.length) {
-        extras.forEach((n, i) => nameMap[n] = i);
-      } else if (prims[0]?.extras?.targetNames) {
-        prims[0].extras.targetNames.forEach((n, i) => nameMap[n] = i);
-      }
-      // Also try from three.js mesh
+    const wp = {};
+    const gm = gltfData.parser.json.meshes || [];
+    for (const [mi, skMap] of Object.entries(modifiedWeights)) {
+      const mesh = gm[parseInt(mi)]; if (!mesh) continue;
+      const nt = mesh.primitives?.[0]?.targets?.length || 0;
+      const w = mesh.weights ? [...mesh.weights] : new Array(nt).fill(0);
+      const nm = {};
       const threeMesh = findThreeMesh(mesh.name);
-      if (threeMesh?.morphTargetDictionary) {
-        Object.entries(threeMesh.morphTargetDictionary).forEach(([n, i]) => nameMap[n] = i);
-      }
-
-      for (const [name, val] of Object.entries(skMap)) {
-        const idx = nameMap[name];
-        if (idx !== undefined && idx < weights.length) weights[idx] = val;
-      }
-      weightsPayload[meshIdx] = weights;
+      if (threeMesh?.morphTargetDictionary) Object.entries(threeMesh.morphTargetDictionary).forEach(([n,i]) => nm[n]=i);
+      for (const [name, val] of Object.entries(skMap)) { const i = nm[name]; if (i !== undefined && i < w.length) w[i] = val; }
+      wp[mi] = w;
     }
-    payload.weights = weightsPayload;
+    payload.weights = wp;
   }
+  if (Object.keys(modifiedMaterials).length) payload.materials = modifiedMaterials;
 
-  // Materials
-  if (Object.keys(modifiedMaterials).length) {
-    payload.materials = modifiedMaterials;
-  }
-
-  // Meta
   const metaInputs = document.querySelectorAll('#meta-fields input');
   if (metaInputs.length) {
     const meta = {};
-    metaInputs.forEach(input => {
-      const key = input.dataset.key;
-      const val = input.value;
-      if (key === 'authors') {
-        meta[key] = val.split(',').map(s => s.trim()).filter(Boolean);
-      } else if (key === 'texture' || key === 'thumbnailImage') {
-        meta[key] = parseInt(val) || 0;
-      } else {
-        meta[key] = val;
-      }
+    metaInputs.forEach(inp => {
+      const k = inp.dataset.key, v = inp.value;
+      meta[k] = k === 'authors' ? v.split(',').map(s => s.trim()).filter(Boolean) :
+                (k === 'texture' || k === 'thumbnailImage') ? (parseInt(v) || 0) : v;
     });
-    // Save meta separately
-    await fetch('/api/meta', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(meta),
-    });
+    await fetch('/api/meta', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(meta) });
   }
-
-  // Save customizations
   if (payload.weights || payload.materials) {
-    await fetch('/api/save-customization', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    await fetch('/api/save-customization', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   }
-
   showToast('Saved');
 });
 
 function findThreeMesh(name) {
   let found = null;
-  vrm?.scene.traverse(obj => {
-    if ((obj.isMesh || obj.isSkinnedMesh) && obj.name === name) found = obj;
-  });
+  vrm?.scene.traverse(obj => { if ((obj.isMesh || obj.isSkinnedMesh) && obj.name === name) found = obj; });
   return found;
 }
 
@@ -1004,56 +978,41 @@ async function loadVRM() {
   const resp = await fetch('/api/vrm');
   const blob = await resp.blob();
   const url = URL.createObjectURL(blob);
-
   loader.load(url, (loaded) => {
-    gltf = loaded;
-    if (vrm) {
-      VRMUtils.deepDispose(vrm.scene);
-      scene.remove(vrm.scene);
-    }
-
+    gltfData = loaded;
+    if (vrm) { VRMUtils.deepDispose(vrm.scene); scene.remove(vrm.scene); }
     vrm = loaded.userData.vrm;
     VRMUtils.rotateVRM0(vrm);
     scene.add(vrm.scene);
-
-    // Auto-center
     const box = new THREE.Box3().setFromObject(vrm.scene);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     controls.target.copy(center);
-    camera.position.set(center.x, center.y + size.y * 0.1, center.z - size.y * 1.4);
+    camera.position.set(center.x, center.y+size.y*0.1, center.z-size.y*1.4);
     controls.update();
-
     URL.revokeObjectURL(url);
 
-    // Build UI
     const meshes = collectMeshes();
     buildParts(meshes);
-    buildShapeTab(meshes);
-    buildFaceTab(meshes);
+    buildGroupedTab(meshes, 'shape-categories', FACE_CATEGORIES, BODY_CATEGORIES, false);
+    buildGroupedTab(meshes, 'face-categories', FACE_CATEGORIES, BODY_CATEGORIES, true);
     buildMaterialTab(meshes);
     buildMetaTab();
     setupSearch('shape-search', 'shape-categories');
     setupSearch('face-search', 'face-categories');
 
-    setStatus(`${vrm.meta?.metaVersion || 'VRM'} | ${meshes.length} meshes | ${meshes.reduce((a, m) => a + m.shapeKeys.length, 0)} shape keys`);
-  }, (p) => {
-    if (p.total) setStatus(`Loading... ${Math.round(p.loaded / p.total * 100)}%`);
-  }, (err) => {
-    setStatus(`Error: ${err.message}`);
-    console.error(err);
-  });
+    setStatus(`${meshes.length} meshes | ${meshes.reduce((a,m) => a+m.shapeKeys.length, 0)} shape keys | Click model to recolor`);
+  }, (p) => { if (p.total) setStatus(`Loading... ${Math.round(p.loaded/p.total*100)}%`); },
+  (err) => { setStatus(`Error: ${err.message}`); });
 }
 
-// ---- Render loop ----
+// ---- Render ----
 function animate() {
   requestAnimationFrame(animate);
-  const dt = clock.getDelta();
-  if (vrm) vrm.update(dt);
+  if (vrm) vrm.update(clock.getDelta());
   controls.update();
   renderer.render(scene, camera);
 }
-
 loadVRM();
 animate();
 </script>

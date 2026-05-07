@@ -87,3 +87,51 @@ class GlbFile:
             out += b"\x00" * bin_pad
 
         Path(path).write_bytes(bytes(out))
+
+    # ---- Image operations ----
+
+    def extract_image(self, image_index: int) -> bytes:
+        """Extract an image's raw data (PNG/JPEG bytes) from the binary chunk."""
+        images = self.json_data.get("images", [])
+        if image_index >= len(images):
+            raise IndexError(f"Image index {image_index} out of range ({len(images)})")
+        bv_index = images[image_index]["bufferView"]
+        bv = self.json_data["bufferViews"][bv_index]
+        offset = bv.get("byteOffset", 0)
+        return self.bin_data[offset : offset + bv["byteLength"]]
+
+    def replace_image(self, image_index: int, new_data: bytes) -> None:
+        """Replace an image's data in the binary chunk, adjusting all offsets."""
+        images = self.json_data.get("images", [])
+        if image_index >= len(images):
+            raise IndexError(f"Image index {image_index} out of range ({len(images)})")
+
+        bv_index = images[image_index]["bufferView"]
+        buffer_views = self.json_data["bufferViews"]
+        bv = buffer_views[bv_index]
+        old_offset = bv.get("byteOffset", 0)
+        old_length = bv["byteLength"]
+        size_diff = len(new_data) - old_length
+
+        # Splice the binary chunk
+        self.bin_data = (
+            self.bin_data[:old_offset]
+            + new_data
+            + self.bin_data[old_offset + old_length :]
+        )
+
+        # Update this bufferView
+        bv["byteLength"] = len(new_data)
+
+        # Shift all subsequent bufferViews
+        for other_bv in buffer_views:
+            if other_bv is bv:
+                continue
+            other_offset = other_bv.get("byteOffset", 0)
+            if other_offset > old_offset:
+                other_bv["byteOffset"] = other_offset + size_diff
+
+        # Update total buffer length
+        buffers = self.json_data.get("buffers", [])
+        if buffers:
+            buffers[0]["byteLength"] = len(self.bin_data)
