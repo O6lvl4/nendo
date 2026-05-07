@@ -266,33 +266,49 @@ canvas { display: block; width: 100%; height: 100%; }
   <div id="tab-recolor" class="tab-content active">
     <div class="recolor-panel">
       <div class="instruction">
-        3D model on the left to pick a color, then adjust the sliders to recolor.
-        Works for eyes, hair, skin, clothing, etc.
+        Click on the 3D model to pick a part, then choose a new color.
       </div>
 
-      <div class="sampled-color-preview">
-        <div class="sampled-swatch" id="sampled-swatch"></div>
-        <div>
-          <div id="sampled-label" style="font-size:12px;color:var(--dim)">No color selected</div>
+      <!-- Color: sampled → target -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--dim);margin-bottom:4px">Current</div>
+          <div class="sampled-swatch" id="sampled-swatch" style="width:48px;height:48px;border-radius:8px;border:2px solid var(--border)"></div>
+        </div>
+        <div style="font-size:18px;color:var(--dim)">→</div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--dim);margin-bottom:4px">New</div>
+          <div id="target-swatch" style="width:48px;height:48px;border-radius:8px;border:2px solid var(--border);position:relative;cursor:pointer;background:#888">
+            <input type="color" id="rc-color-picker" value="#888888" style="position:absolute;inset:-4px;width:56px;height:56px;border:none;cursor:pointer;opacity:0">
+          </div>
+        </div>
+        <div style="flex:1">
+          <div id="sampled-label" style="font-size:12px;color:var(--dim)">Click model to pick</div>
           <div id="sampled-hex" style="font-size:11px;font-family:monospace;color:var(--accent)"></div>
         </div>
       </div>
 
       <div class="recolor-controls" id="recolor-controls">
-        <div class="slider-row">
-          <label>Hue Shift</label>
-          <input type="range" id="rc-hue" min="-180" max="180" value="0">
-          <span class="val" id="rc-hue-val">0</span>
+        <!-- Fine-tune sliders (hidden by default, toggle to show) -->
+        <div style="margin-bottom:8px">
+          <button class="view-btn" id="toggle-sliders" style="width:100%;text-align:center;padding:6px">Fine-tune sliders</button>
         </div>
-        <div class="slider-row">
-          <label>Saturation</label>
-          <input type="range" id="rc-sat" min="-100" max="100" value="0">
-          <span class="val" id="rc-sat-val">0</span>
-        </div>
-        <div class="slider-row">
-          <label>Brightness</label>
-          <input type="range" id="rc-bri" min="-100" max="100" value="0">
-          <span class="val" id="rc-bri-val">0</span>
+        <div id="fine-tune-sliders" style="display:none">
+          <div class="slider-row">
+            <label>Hue Shift</label>
+            <input type="range" id="rc-hue" min="-180" max="180" value="0">
+            <span class="val" id="rc-hue-val">0</span>
+          </div>
+          <div class="slider-row">
+            <label>Saturation</label>
+            <input type="range" id="rc-sat" min="-100" max="100" value="0">
+            <span class="val" id="rc-sat-val">0</span>
+          </div>
+          <div class="slider-row">
+            <label>Brightness</label>
+            <input type="range" id="rc-bri" min="-100" max="100" value="0">
+            <span class="val" id="rc-bri-val">0</span>
+          </div>
         </div>
         <div class="slider-row">
           <label>Tolerance</label>
@@ -440,22 +456,31 @@ function hueDist(h1, h2) {
 function moveCameraTo(pos, target) {
   camera.position.set(...pos); controls.target.set(...target); controls.update();
 }
-function getModelBounds() {
-  if (!vrm) return { center: [0,1,0], size: [1,1.6,1] };
+function getModelCenter() {
+  if (!vrm) return { center: [0,1,0], height: 1.6, headY: 1.5 };
+  vrm.scene.updateMatrixWorld(true);
+  const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+  const head = vrm.humanoid?.getNormalizedBoneNode('head');
+  if (hips && head) {
+    const hw = new THREE.Vector3(); hips.getWorldPosition(hw);
+    const hdw = new THREE.Vector3(); head.getWorldPosition(hdw);
+    const cx = (hw.x + hdw.x) / 2, cy = (hw.y + hdw.y) / 2, cz = (hw.z + hdw.z) / 2;
+    return { center: [cx, cy, cz], height: hdw.y - hw.y + 0.3, headY: hdw.y + 0.15 };
+  }
   const box = new THREE.Box3().setFromObject(vrm.scene);
   const c = box.getCenter(new THREE.Vector3());
   const s = box.getSize(new THREE.Vector3());
-  return { center: [c.x,c.y,c.z], size: [s.x,s.y,s.z] };
+  return { center: [c.x,c.y,c.z], height: s.y, headY: c.y + s.y * 0.35 };
 }
 document.querySelectorAll('[data-view]').forEach(btn => {
   btn.addEventListener('click', () => {
-    const { center: c, size: s } = getModelBounds();
+    const { center: c, height: h, headY } = getModelCenter();
     const views = {
-      full:  () => moveCameraTo([c[0],c[1]+s[1]*0.1,c[2]-s[1]*1.4], c),
-      face:  () => moveCameraTo([c[0],c[1]+s[1]*0.36,c[2]-0.55], [c[0],c[1]+s[1]*0.36,c[2]]),
-      front: () => moveCameraTo([c[0],c[1],c[2]-s[1]*1.2], c),
-      side:  () => moveCameraTo([c[0]-s[1]*1.2,c[1],c[2]], c),
-      back:  () => moveCameraTo([c[0],c[1],c[2]+s[1]*1.2], c),
+      full:  () => moveCameraTo([0, c[1]+h*0.1, -h*1.5], c),
+      face:  () => moveCameraTo([0, headY, -0.55], [0, headY, 0]),
+      front: () => moveCameraTo([0, c[1], -h*1.2], c),
+      side:  () => moveCameraTo([-h*1.2, c[1], 0], c),
+      back:  () => moveCameraTo([0, c[1], h*1.2], c),
     };
     views[btn.dataset.view]?.();
   });
@@ -478,8 +503,13 @@ document.getElementById('viewport').classList.add('recolor-mode');
 // ================ RECOLOR TOOL ================
 
 // Click on 3D model -> sample color
-canvas.addEventListener('click', (e) => {
-  if (!recolorMode || !vrm) return;
+// Distinguish click from drag so orbit doesn't eat recolor picks
+let pointerDownPos = null;
+canvas.addEventListener('pointerdown', (e) => { pointerDownPos = { x: e.clientX, y: e.clientY }; });
+canvas.addEventListener('pointerup', (e) => {
+  if (!recolorMode || !vrm || !pointerDownPos) return;
+  const dx = e.clientX - pointerDownPos.x, dy = e.clientY - pointerDownPos.y;
+  if (dx * dx + dy * dy > 25) return; // dragged — skip
 
   const rect = canvas.getBoundingClientRect();
   const mouse = new THREE.Vector2(
@@ -494,11 +524,24 @@ canvas.addEventListener('click', (e) => {
   if (!hit.uv) return;
 
   const mesh = hit.object;
-  const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-  const tex = mat?.map;
-  if (!tex?.image) return;
+  // Pick the correct material for multi-material meshes (e.g. Body has Face + Face_effect)
+  let mat;
+  if (Array.isArray(mesh.material) && hit.face) {
+    mat = mesh.material[hit.face.materialIndex] || mesh.material[0];
+  } else {
+    mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  }
+  if (!mat?.map?.image) {
+    // Try other materials on this mesh if the hit one has no texture
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const alt = mats.find(m => m?.map?.image);
+    if (!alt) return;
+    mat = alt;
+  }
+  if (!mat.map?.image) return;
 
   // Sample color from texture at UV
+  const tex = mat.map;
   const img = tex.image;
   recolorCanvas.width = img.width;
   recolorCanvas.height = img.height;
@@ -510,12 +553,14 @@ canvas.addEventListener('click', (e) => {
 
   // Store original texture data
   originalTexData = recolorCtx.getImageData(0, 0, img.width, img.height);
+  canvasTexture = null; // reset so new CanvasTexture is created for this material
 
   // Find texture/image index
   const texIndex = findTextureIndex(mat);
 
   sampledColor = { r: pixel[0], g: pixel[1], b: pixel[2] };
   sampledTexInfo = { mesh, material: mat, texture: tex, texIndex, image: img };
+  precomputeHSL_and_mask();
 
   // Update UI
   const hex = `#${pixel[0].toString(16).padStart(2,'0')}${pixel[1].toString(16).padStart(2,'0')}${pixel[2].toString(16).padStart(2,'0')}`;
@@ -523,6 +568,9 @@ canvas.addEventListener('click', (e) => {
   document.getElementById('sampled-hex').textContent = hex;
   document.getElementById('sampled-label').textContent = `${mat.name || mesh.name} (${img.width}x${img.height})`;
   document.getElementById('recolor-controls').classList.add('active');
+  // Init color picker to sampled color
+  document.getElementById('rc-color-picker').value = hex;
+  document.getElementById('target-swatch').style.background = hex;
 
   // Reset sliders
   for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
@@ -545,97 +593,167 @@ function findTextureIndex(mat) {
   return -1;
 }
 
-function updateTexturePreview() {
-  if (!originalTexData) return;
-  const previewCanvas = document.getElementById('tex-preview-canvas');
-  const w = originalTexData.width;
-  const h = originalTexData.height;
-  const aspect = w / h;
-  previewCanvas.width = 340;
-  previewCanvas.height = 340 / aspect;
-  const ctx = previewCanvas.getContext('2d');
+// ---- Pre-computed pixel data for fast recolor ----
+let canvasTexture = null;
+let recolorRafId = null;
+// Sparse: only store data for affected pixels
+let maskedIndices = null;  // Uint32Array of pixel indices
+let maskedHSL = null;      // Float32Array [h,s,l,...] only for masked pixels
+let maskedFalloff = null;  // Float32Array [falloff,...] only for masked pixels
+let outputData = null;     // Persistent ImageData (avoids re-alloc + full copy)
 
-  // Draw the current recolored version
-  recolorCanvas.width = w;
-  recolorCanvas.height = h;
-  const modified = applyRecolor(originalTexData);
-  recolorCtx.putImageData(modified, 0, 0);
-  ctx.drawImage(recolorCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
-
-  const name = sampledTexInfo?.material?.name || 'Texture';
-  document.getElementById('tex-preview-name').textContent = name;
-}
-
-function applyRecolor(srcData) {
-  if (!sampledColor) return srcData;
-
-  const hueShift = parseInt(document.getElementById('rc-hue').value);
-  const satShift = parseInt(document.getElementById('rc-sat').value);
-  const briShift = parseInt(document.getElementById('rc-bri').value);
+function precomputeHSL_and_mask() {
+  if (!originalTexData || !sampledColor) return;
+  const src = originalTexData.data;
+  const n = src.length / 4;
   const tolerance = parseInt(document.getElementById('rc-tol').value);
-
   const [sH, sS, sL] = rgbToHsl(sampledColor.r, sampledColor.g, sampledColor.b);
 
-  const dst = new ImageData(
-    new Uint8ClampedArray(srcData.data),
-    srcData.width, srcData.height
-  );
-  const d = dst.data;
+  // First pass: count matching pixels
+  const tmpIdx = [];
+  const tmpHsl = [];
+  const tmpFall = [];
 
-  for (let i = 0; i < d.length; i += 4) {
-    const a = d[i + 3];
-    if (a < 10) continue; // skip transparent
-
-    const [h, s, l] = rgbToHsl(d[i], d[i+1], d[i+2]);
-
-    // Check if this pixel is "similar" to sampled color
-    const hDist = hueDist(h, sH);
-    const sDist = Math.abs(s - sS);
-    const lDist = Math.abs(l - sL);
-
-    // Weighted similarity: hue matters most, then sat, then lightness
-    const similarity = hDist * 1.0 + sDist * 0.3 + lDist * 0.2;
-
-    if (similarity <= tolerance) {
-      // Apply shift with falloff
-      const falloff = 1 - (similarity / tolerance);
-      const newH = h + hueShift * falloff;
-      const newS = s + satShift * falloff;
-      const newL = l + briShift * falloff * 0.5;
-      const [nr, ng, nb] = hslToRgb(newH, newS, newL);
-      d[i] = nr; d[i+1] = ng; d[i+2] = nb;
+  for (let i = 0; i < n; i++) {
+    const p = i * 4;
+    if (src[p + 3] < 10) continue;
+    const [h, s, l] = rgbToHsl(src[p], src[p+1], src[p+2]);
+    const sim = hueDist(h, sH) + Math.abs(s - sS) * 0.3 + Math.abs(l - sL) * 0.2;
+    if (sim <= tolerance) {
+      tmpIdx.push(i);
+      tmpHsl.push(h, s, l);
+      tmpFall.push(1 - sim / tolerance);
     }
   }
 
-  return dst;
+  maskedIndices = new Uint32Array(tmpIdx);
+  maskedHSL = new Float32Array(tmpHsl);
+  maskedFalloff = new Float32Array(tmpFall);
+
+  // Init persistent output as copy of original
+  const w = originalTexData.width, h2 = originalTexData.height;
+  if (recolorCanvas.width !== w || recolorCanvas.height !== h2) {
+    recolorCanvas.width = w; recolorCanvas.height = h2;
+  }
+  outputData = recolorCtx.createImageData(w, h2);
+  outputData.data.set(src);
+
+  console.log(`Recolor mask: ${maskedIndices.length} / ${n} pixels (${(maskedIndices.length/n*100).toFixed(1)}%)`);
 }
 
-function applyRecolorToThreeTexture() {
-  if (!originalTexData || !sampledTexInfo) return;
+function applyRecolorFast() {
+  if (!outputData || !maskedIndices) return;
+  const hueShift = parseInt(document.getElementById('rc-hue').value);
+  const satShift = parseInt(document.getElementById('rc-sat').value);
+  const briShift = parseInt(document.getElementById('rc-bri').value);
 
-  recolorCanvas.width = originalTexData.width;
-  recolorCanvas.height = originalTexData.height;
-  const modified = applyRecolor(originalTexData);
-  recolorCtx.putImageData(modified, 0, 0);
+  const dd = outputData.data;
+  const src = originalTexData.data;
+  const count = maskedIndices.length;
 
-  // Update three.js texture
-  const tex = sampledTexInfo.texture;
-  const newImg = new Image();
-  newImg.onload = () => {
-    tex.image = newImg;
-    tex.needsUpdate = true;
-  };
-  newImg.src = recolorCanvas.toDataURL('image/png');
+  // Restore original + apply shift only for masked pixels
+  for (let k = 0; k < count; k++) {
+    const i = maskedIndices[k];
+    const p = i * 4, j = k * 3;
+    const f = maskedFalloff[k];
+    const [r, g, b] = hslToRgb(
+      maskedHSL[j] + hueShift * f,
+      maskedHSL[j+1] + satShift * f,
+      maskedHSL[j+2] + briShift * f * 0.5
+    );
+    dd[p] = r; dd[p+1] = g; dd[p+2] = b;
+  }
+
+  recolorCtx.putImageData(outputData, 0, 0);
 }
 
-// Slider live preview
-for (const id of ['rc-hue', 'rc-sat', 'rc-bri', 'rc-tol']) {
-  document.getElementById(id).addEventListener('input', (e) => {
-    document.getElementById(id + '-val').textContent = e.target.value;
-    applyRecolorToThreeTexture();
+function updateThreeTexture() {
+  if (!sampledTexInfo) return;
+  // Use CanvasTexture for direct GPU upload — no PNG encode
+  if (!canvasTexture) {
+    canvasTexture = new THREE.CanvasTexture(recolorCanvas);
+    canvasTexture.flipY = sampledTexInfo.texture.flipY;
+    canvasTexture.colorSpace = sampledTexInfo.texture.colorSpace;
+    // Swap the texture on the material
+    sampledTexInfo.material.map = canvasTexture;
+  }
+  canvasTexture.needsUpdate = true;
+}
+
+function updateTexturePreview() {
+  if (!originalTexData) return;
+  const previewCanvas = document.getElementById('tex-preview-canvas');
+  const aspect = originalTexData.width / originalTexData.height;
+  previewCanvas.width = 340;
+  previewCanvas.height = Math.round(340 / aspect);
+  previewCanvas.getContext('2d').drawImage(recolorCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+  document.getElementById('tex-preview-name').textContent = sampledTexInfo?.material?.name || 'Texture';
+}
+
+function scheduleRecolor() {
+  if (recolorRafId) return;
+  recolorRafId = requestAnimationFrame(() => {
+    recolorRafId = null;
+    applyRecolorFast();
+    updateThreeTexture();
     updateTexturePreview();
   });
 }
+
+// ---- Color picker: compute HSL shift from sampled → target ----
+document.getElementById('rc-color-picker').addEventListener('input', (e) => {
+  if (!sampledColor) return;
+  const hex = e.target.value;
+  document.getElementById('target-swatch').style.background = hex;
+
+  // Parse target color
+  const tr = parseInt(hex.slice(1,3), 16);
+  const tg = parseInt(hex.slice(3,5), 16);
+  const tb = parseInt(hex.slice(5,7), 16);
+  const [tH, tS, tL] = rgbToHsl(tr, tg, tb);
+  const [sH, sS, sL] = rgbToHsl(sampledColor.r, sampledColor.g, sampledColor.b);
+
+  // Compute shortest hue shift
+  let hShift = tH - sH;
+  if (hShift > 180) hShift -= 360;
+  if (hShift < -180) hShift += 360;
+  const sShift = tS - sS;
+  const lShift = (tL - sL) * 2; // briShift is multiplied by 0.5 in applyRecolorFast
+
+  // Set sliders
+  document.getElementById('rc-hue').value = Math.round(hShift);
+  document.getElementById('rc-hue-val').textContent = Math.round(hShift);
+  document.getElementById('rc-sat').value = Math.round(Math.max(-100, Math.min(100, sShift)));
+  document.getElementById('rc-sat-val').textContent = Math.round(Math.max(-100, Math.min(100, sShift)));
+  document.getElementById('rc-bri').value = Math.round(Math.max(-100, Math.min(100, lShift)));
+  document.getElementById('rc-bri-val').textContent = Math.round(Math.max(-100, Math.min(100, lShift)));
+
+  scheduleRecolor();
+});
+
+// Toggle fine-tune sliders
+document.getElementById('toggle-sliders').addEventListener('click', () => {
+  const el = document.getElementById('fine-tune-sliders');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+});
+
+// Slider live preview
+for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
+  document.getElementById(id).addEventListener('input', (e) => {
+    document.getElementById(id + '-val').textContent = e.target.value;
+    scheduleRecolor();
+  });
+}
+// Tolerance changes need full recomputation (but debounced)
+let tolDebounce = null;
+document.getElementById('rc-tol').addEventListener('input', (e) => {
+  document.getElementById('rc-tol-val').textContent = e.target.value;
+  clearTimeout(tolDebounce);
+  tolDebounce = setTimeout(() => {
+    precomputeHSL_and_mask();
+    scheduleRecolor();
+  }, 150);
+});
 
 // Reset
 document.getElementById('rc-reset').addEventListener('click', () => {
@@ -643,28 +761,21 @@ document.getElementById('rc-reset').addEventListener('click', () => {
     document.getElementById(id).value = '0';
     document.getElementById(id + '-val').textContent = '0';
   }
-  // Restore original texture
   if (originalTexData && sampledTexInfo) {
-    recolorCanvas.width = originalTexData.width;
-    recolorCanvas.height = originalTexData.height;
+    // Restore original pixels
+    if (outputData) outputData.data.set(originalTexData.data);
     recolorCtx.putImageData(originalTexData, 0, 0);
-    const tex = sampledTexInfo.texture;
-    const newImg = new Image();
-    newImg.onload = () => { tex.image = newImg; tex.needsUpdate = true; };
-    newImg.src = recolorCanvas.toDataURL('image/png');
+    updateThreeTexture();
+    updateTexturePreview();
   }
-  updateTexturePreview();
 });
 
 // Apply & Save to VRM
 document.getElementById('rc-apply').addEventListener('click', async () => {
   if (!originalTexData || !sampledTexInfo) return;
 
-  // Get the modified texture as PNG
-  recolorCanvas.width = originalTexData.width;
-  recolorCanvas.height = originalTexData.height;
-  const modified = applyRecolor(originalTexData);
-  recolorCtx.putImageData(modified, 0, 0);
+  // Ensure latest recolor is applied
+  applyRecolorFast();
 
   const blob = await new Promise(r => recolorCanvas.toBlob(r, 'image/png'));
 
@@ -984,11 +1095,30 @@ async function loadVRM() {
     vrm = loaded.userData.vrm;
     VRMUtils.rotateVRM0(vrm);
     scene.add(vrm.scene);
-    const box = new THREE.Box3().setFromObject(vrm.scene);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    controls.target.copy(center);
-    camera.position.set(center.x, center.y+size.y*0.1, center.z-size.y*1.4);
+    vrm.scene.updateMatrixWorld(true);
+
+    // Orbit target = center of character, computed from bone world positions
+    const hipsNode = vrm.humanoid?.getNormalizedBoneNode('hips');
+    const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
+    const hipsW = new THREE.Vector3();
+    const headW = new THREE.Vector3();
+    let targetPos, modelHeight;
+
+    if (hipsNode && headNode) {
+      hipsNode.getWorldPosition(hipsW);
+      headNode.getWorldPosition(headW);
+      targetPos = new THREE.Vector3().lerpVectors(hipsW, headW, 0.5);
+      modelHeight = headW.y - hipsW.y + 0.3;
+    } else {
+      const box = new THREE.Box3().setFromObject(vrm.scene);
+      targetPos = box.getCenter(new THREE.Vector3());
+      modelHeight = box.getSize(new THREE.Vector3()).y;
+    }
+
+    console.log('Orbit target:', targetPos, 'Height:', modelHeight);
+    controls.target.copy(targetPos);
+    // Camera in front: offset along the direction the model faces (-Z after rotateVRM0)
+    camera.position.set(targetPos.x, targetPos.y + modelHeight * 0.1, targetPos.z - modelHeight * 1.5);
     controls.update();
     URL.revokeObjectURL(url);
 
