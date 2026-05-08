@@ -92,6 +92,8 @@ class EditorHandler(SimpleHTTPRequestHandler):
             data = json.loads(body)
             self._save_customization(data)
             self._json_response({"ok": True})
+        elif path.startswith("/api/texture/") and path.endswith("/recolor"):
+            self._recolor_texture(path, body)
         elif path.startswith("/api/texture/"):
             self._replace_texture(path, body)
         elif path == "/api/upload-vrm":
@@ -239,6 +241,76 @@ class EditorHandler(SimpleHTTPRequestHandler):
         self._vrm_path = tmp
         self._vrm = Vrm.load(tmp)
         self._json_response({"ok": True, "summary": self._vrm.summary()})
+
+    def _recolor_texture(self, path: str, body: bytes) -> None:
+        """Apply hue shift or tint to a texture and save back."""
+        import io
+        import colorsys
+        import numpy as np
+        from PIL import Image
+
+        # Parse: /api/texture/4/recolor
+        parts = path.strip("/").split("/")
+        idx = int(parts[2])
+        params = json.loads(body)
+
+        img_bytes = self._vrm.glb.extract_image(idx)
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+        arr = np.array(img, dtype=np.float32)
+        rgb = arr[:, :, :3] / 255.0
+        alpha = arr[:, :, 3:]
+
+        tint = params.get("tint")
+        if tint:
+            hex_clean = tint.lstrip("#")
+            tr = int(hex_clean[0:2], 16) / 255.0
+            tg = int(hex_clean[2:4], 16) / 255.0
+            tb = int(hex_clean[4:6], 16) / 255.0
+            rgb[:, :, 0] *= tr
+            rgb[:, :, 1] *= tg
+            rgb[:, :, 2] *= tb
+
+        hue = params.get("hue", 0)
+        sat = params.get("saturation", 0)
+        bri = params.get("brightness", 0)
+        if hue or sat or bri:
+            r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+            maxc = np.maximum(np.maximum(r, g), b)
+            minc = np.minimum(np.minimum(r, g), b)
+            v = maxc
+            delta = maxc - minc
+            s = np.where(maxc > 0, delta / maxc, 0)
+            h = np.zeros_like(r)
+            mask = delta > 0
+            rm = mask & (maxc == r)
+            gm = mask & (maxc == g) & ~rm
+            bm = mask & ~rm & ~gm
+            h[rm] = ((g[rm] - b[rm]) / delta[rm]) % 6
+            h[gm] = ((b[gm] - r[gm]) / delta[gm]) + 2
+            h[bm] = ((r[bm] - g[bm]) / delta[bm]) + 4
+            h /= 6.0
+            h = (h + hue / 360.0) % 1.0
+            s = np.clip(s + sat / 100.0, 0, 1)
+            v = np.clip(v + bri / 100.0, 0, 1)
+            hi = (h * 6).astype(int) % 6
+            f = h * 6 - hi
+            p = v * (1 - s)
+            q = v * (1 - f * s)
+            t = v * (1 - (1 - f) * s)
+            out = np.zeros_like(rgb)
+            for i, (rv, gv, bv) in enumerate([(v,t,p),(q,v,p),(p,v,t),(p,q,v),(t,p,v),(v,p,q)]):
+                m = hi == i
+                out[:,:,0][m] = rv[m]; out[:,:,1][m] = gv[m]; out[:,:,2][m] = bv[m]
+            rgb = out
+
+        result = np.concatenate([np.clip(rgb * 255, 0, 255), alpha], axis=2).astype(np.uint8)
+        out_img = Image.fromarray(result, "RGBA")
+        buf = io.BytesIO()
+        out_img.save(buf, format="PNG")
+        self._vrm.glb.replace_image(idx, buf.getvalue())
+        self._vrm.save(self._vrm_path)
+        self._vrm = Vrm.load(self._vrm_path)
+        self._json_response({"ok": True})
 
     def _bake_shape_keys(self, data: dict) -> None:
         from nendo.bake import bake_shape_keys
