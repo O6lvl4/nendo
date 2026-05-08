@@ -447,6 +447,42 @@ def blender_convert(
     console.print(f"[green]Saved to {output_file}[/green]")
 
 
+# ---- bake ----
+
+
+@app.command()
+def bake(
+    file: Path = typer.Argument(..., help="Path to .vrm file"),
+    set_field: list[str] = typer.Option(..., "--set", "-s", help="mesh:key=weight (e.g. Body_Base:Waist_slim=0.5)"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output path (default: overwrite)"),
+) -> None:
+    """Bake shape key weights permanently into mesh geometry."""
+    from nendo.bake import bake_shape_keys
+
+    vrm = Vrm.load(file)
+
+    targets: dict[str, dict[str, float]] = {}
+    for field in set_field:
+        if ":" not in field or "=" not in field:
+            console.print(f"[red]Invalid format: {field} (expected mesh:key=weight)[/red]")
+            raise typer.Exit(1)
+        mesh_key, weight_str = field.rsplit("=", 1)
+        mesh_name, key_name = mesh_key.split(":", 1)
+        targets.setdefault(mesh_name, {})[key_name] = float(weight_str)
+
+    result = bake_shape_keys(vrm, targets)
+
+    out_path = output or file
+    vrm.save(out_path)
+
+    for mesh_name, keys in result.items():
+        console.print(f"  [green]{mesh_name}[/green]: baked {', '.join(keys)}")
+    if not result:
+        console.print("[yellow]No keys were baked (check mesh/key names)[/yellow]")
+    else:
+        console.print(f"[green]Saved to {out_path}[/green]")
+
+
 # ---- migrate ----
 
 

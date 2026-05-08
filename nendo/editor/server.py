@@ -75,6 +75,9 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self._json_response({"ok": True})
         elif path.startswith("/api/texture/"):
             self._replace_texture(path, body)
+        elif path == "/api/bake":
+            data = json.loads(body)
+            self._bake_shape_keys(data)
         elif path == "/api/presets":
             self._save_preset(body)
         else:
@@ -205,6 +208,15 @@ class EditorHandler(SimpleHTTPRequestHandler):
         data = [d for d in data if d.get("name") != name]
         p.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
         self._json_response({"ok": True})
+
+    def _bake_shape_keys(self, data: dict) -> None:
+        from nendo.bake import bake_shape_keys
+
+        targets = data.get("targets", {})
+        result = bake_shape_keys(self._vrm, targets)
+        self._vrm.save(self._vrm_path)
+        self._vrm = Vrm.load(self._vrm_path)
+        self._json_response({"ok": True, "baked": result})
 
     def _serve_vrm_file(self) -> None:
         data = self._vrm_path.read_bytes()

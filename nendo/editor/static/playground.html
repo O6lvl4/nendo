@@ -331,23 +331,25 @@ function showToast(msg) {
 
 // ---- Camera ----
 function getRef() {
-  if (!vrm) return { head:[0,1.5,0], hips:[0,1,0], height:0.5 };
+  if (!vrm) return { center:[0,1,0], head:[0,1.5,0], height:0.5 };
   vrm.scene.updateMatrixWorld(true);
-  const head = vrm.humanoid?.getNormalizedBoneNode('head');
-  const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+  const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
+  const hipsNode = vrm.humanoid?.getNormalizedBoneNode('hips');
   const hw = new THREE.Vector3(), hpw = new THREE.Vector3();
-  if (head) head.getWorldPosition(hw);
-  if (hips) hips.getWorldPosition(hpw);
-  return { head:[hw.x,hw.y+0.1,hw.z], hips:[hpw.x,hpw.y,hpw.z], height:hw.y-hpw.y+0.3 };
+  if (headNode) headNode.getWorldPosition(hw);
+  if (hipsNode) hipsNode.getWorldPosition(hpw);
+  const cx = (hw.x+hpw.x)/2, cy = (hw.y+hpw.y)/2, cz = (hw.z+hpw.z)/2;
+  return { center:[cx,cy,cz], head:[hw.x,hw.y+0.1,hw.z], height:hw.y-hpw.y+0.3 };
 }
 function moveTo(pos, target) { camera.position.set(...pos); controls.target.set(...target); controls.update(); }
 document.querySelectorAll('[data-view]').forEach(btn => {
   btn.addEventListener('click', () => {
     const r = getRef();
+    const h = r.height;
     const views = {
-      face: () => moveTo([0,r.head[1],-0.5], r.head),
-      bust: () => { const y=(r.head[1]+r.hips[1])/2+r.height*0.2; moveTo([0,y,-r.height*1.2],[0,y,0]); },
-      full: () => { const y=(r.head[1]+r.hips[1])/2; moveTo([0,y+r.height*0.1,-r.height*1.8],[0,y,0]); },
+      face: () => moveTo([0, r.head[1], r.head[2]-0.5], r.head),
+      bust: () => { const y=r.center[1]+h*0.2; moveTo([0,y,r.center[2]-h*1.2], r.center); },
+      full: () => moveTo([0, r.center[1]+h*0.1, r.center[2]-h*1.8], r.center),
     };
     views[btn.dataset.view]?.();
   });
@@ -735,8 +737,8 @@ function loadVRMFromFile(file) {
     initIdlePose();
 
     const r = getRef();
-    const y = (r.head[1]+r.hips[1])/2 + r.height*0.2;
-    moveTo([0, y, -r.height*1.2], [0, y, 0]);
+    const y = r.center[1] + r.height*0.2;
+    moveTo([0, y, r.center[2]-r.height*1.2], r.center);
 
     buildExprList();
     setStatus(`Loaded: ${file.name}`);
@@ -967,10 +969,8 @@ function loadVRM() {
       initIdlePose();
 
       const r = getRef();
-      const y = (r.head[1]+r.hips[1])/2 + r.height*0.2;
-      moveTo([0, y, -r.height*1.2], [0, y, 0]);
-      console.log('Camera:', camera.position.x.toFixed(2), camera.position.y.toFixed(2), camera.position.z.toFixed(2));
-      console.log('Target:', controls.target.x.toFixed(2), controls.target.y.toFixed(2), controls.target.z.toFixed(2));
+      const y = r.center[1] + r.height*0.2;
+      moveTo([0, y, r.center[2]-r.height*1.2], r.center);
 
       buildExprList();
       loadPresets();

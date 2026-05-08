@@ -257,7 +257,10 @@ canvas { display: block; width: 100%; height: 100%; }
 
   <div id="tab-parts" class="tab-content"><div id="parts-list"></div></div>
   <div id="tab-shape" class="tab-content">
-    <div class="search-box"><input type="text" id="shape-search" placeholder="Search body shape keys..."></div>
+    <div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">
+      <input type="text" id="shape-search" placeholder="Search..." style="flex:1;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:var(--radius);font-size:12px">
+      <button id="bake-btn" style="padding:6px 14px;background:#ff6b6b;color:#fff;border:none;border-radius:var(--radius);cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">Bake</button>
+    </div>
     <div id="shape-categories"></div>
   </div>
   <div id="tab-face" class="tab-content">
@@ -479,11 +482,11 @@ document.querySelectorAll('[data-view]').forEach(btn => {
   btn.addEventListener('click', () => {
     const { center: c, height: h, headY } = getModelCenter();
     const views = {
-      full:  () => moveCameraTo([0, c[1]+h*0.1, -h*1.5], c),
-      face:  () => moveCameraTo([0, headY, -0.55], [0, headY, 0]),
-      front: () => moveCameraTo([0, c[1], -h*1.2], c),
-      side:  () => moveCameraTo([-h*1.2, c[1], 0], c),
-      back:  () => moveCameraTo([0, c[1], h*1.2], c),
+      full:  () => moveCameraTo([0, c[1]+h*0.1, h*1.5], c),
+      face:  () => moveCameraTo([0, headY, 0.55], [0, headY, 0]),
+      front: () => moveCameraTo([0, c[1], h*1.2], c),
+      side:  () => moveCameraTo([h*1.2, c[1], 0], c),
+      back:  () => moveCameraTo([0, c[1], -h*1.2], c),
     };
     views[btn.dataset.view]?.();
   });
@@ -1088,6 +1091,48 @@ function setupSearch(inputId, containerId) {
   });
 }
 
+// ---- Bake shape keys ----
+document.getElementById('bake-btn').addEventListener('click', async () => {
+  // Collect all non-zero shape key weights, grouped by mesh name
+  const targets = {};
+  for (const [meshIdx, skMap] of Object.entries(modifiedWeights)) {
+    const gm = gltfData?.parser?.json?.meshes || [];
+    const mesh = gm[parseInt(meshIdx)];
+    if (!mesh) continue;
+    const meshName = mesh.name;
+    for (const [name, val] of Object.entries(skMap)) {
+      if (val > 0) {
+        if (!targets[meshName]) targets[meshName] = {};
+        targets[meshName][name] = val;
+      }
+    }
+  }
+
+  if (!Object.keys(targets).length) {
+    showToast('No shape keys to bake — adjust sliders first');
+    return;
+  }
+
+  const count = Object.values(targets).reduce((a, m) => a + Object.keys(m).length, 0);
+  if (!confirm(`Bake ${count} shape key(s) permanently into mesh geometry?\nThis modifies the VRM file and cannot be undone.`)) return;
+
+  const resp = await fetch('/api/bake', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targets }),
+  });
+  const result = await resp.json();
+  if (result.ok) {
+    const baked = result.baked || {};
+    const names = Object.values(baked).flat();
+    showToast(`Baked: ${names.join(', ')}`);
+    // Reload VRM to reflect changes
+    setTimeout(() => location.reload(), 500);
+  } else {
+    showToast('Bake failed');
+  }
+});
+
 // ---- Modification tracking ----
 function trackWeight(mesh, skName, value) {
   const idx = findGltfMeshIndex(mesh);
@@ -1189,8 +1234,7 @@ async function loadVRM() {
 
     console.log('Orbit target:', targetPos, 'Height:', modelHeight);
     controls.target.copy(targetPos);
-    // Camera in front: offset along the direction the model faces (-Z after rotateVRM0)
-    camera.position.set(targetPos.x, targetPos.y + modelHeight * 0.1, targetPos.z - modelHeight * 1.5);
+    camera.position.set(targetPos.x, targetPos.y + modelHeight * 0.1, targetPos.z + modelHeight * 1.5);
     controls.update();
     URL.revokeObjectURL(url);
 
