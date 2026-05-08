@@ -329,7 +329,8 @@ canvas { display: block; width: 100%; height: 100%; }
 
       <div class="texture-preview" id="texture-preview">
         <div class="tex-name" id="tex-preview-name"></div>
-        <canvas id="tex-preview-canvas"></canvas>
+        <div style="font-size:11px;color:var(--dim);margin-bottom:4px">Click on the texture below to pick a color directly</div>
+        <canvas id="tex-preview-canvas" style="cursor:crosshair"></canvas>
       </div>
     </div>
   </div>
@@ -369,9 +370,10 @@ const modifiedMaterials = {};
 // Recolor state
 let recolorMode = true;
 let sampledColor = null;
-let sampledTexInfo = null;  // { mesh, material, texIndex, imageIndex }
-let originalTexData = null; // ImageData of original texture
+let sampledTexInfo = null;
+let originalTexData = null;
 const recolorCanvas = document.createElement('canvas');
+const originalTexCache = new Map(); // mat.uuid -> { image, texData }
 const recolorCtx = recolorCanvas.getContext('2d', { willReadFrequently: true });
 
 // ---- Three.js ----
@@ -524,50 +526,107 @@ canvas.addEventListener('pointerup', (e) => {
   );
   raycaster.setFromCamera(mouse, camera);
   const hits = raycaster.intersectObject(vrm.scene, true);
+  console.log('Raycast hits:', hits.length, hits.map(h => `${h.object.name}(uv:${!!h.uv},dist:${h.distance.toFixed(2)})`).join(', '));
   if (!hits.length) return;
 
-  const hit = hits[0];
-  if (!hit.uv) return;
+  // Collect all hits with textured materials, then pick the most colorful one
+  const candidates = [];
+  for (const h of hits) {
+    if (!h.uv) continue;
+    const obj = h.object;
+    let m;
+    if (Array.isArray(obj.material) && h.face) {
+      m = obj.material[h.face.materialIndex] || obj.material[0];
+    } else {
+      m = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+    }
+    if (!m?.map?.image) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      const alt = mats.find(x => x?.map?.image);
+      if (alt) m = alt;
+    }
+    if (m?.map?.image) candidates.push({ hit: h, mat: m });
+  }
+  if (!candidates.length) return;
 
+  // Sample color from each candidate, pick highest saturation (colored parts like iris)
+  let bestIdx = 0, bestSat = -1;
+  for (let ci = 0; ci < candidates.length; ci++) {
+    const c = candidates[ci];
+    const cImg = c.mat.map.image;
+    let cached = originalTexCache.get(c.mat.uuid);
+    if (!cached) {
+      const tc = document.createElement('canvas');
+      const tx = tc.getContext('2d', { willReadFrequently: true });
+      if (cImg instanceof ImageBitmap || cImg instanceof HTMLImageElement || cImg instanceof HTMLCanvasElement) {
+        tc.width = cImg.width; tc.height = cImg.height; tx.drawImage(cImg, 0, 0);
+      } else if (cImg?.data) {
+        tc.width = cImg.width; tc.height = cImg.height;
+        tx.putImageData(new ImageData(new Uint8ClampedArray(cImg.data), cImg.width, cImg.height), 0, 0);
+      } else continue;
+      cached = { texData: tx.getImageData(0, 0, tc.width, tc.height), origTex: c.mat.map };
+      originalTexCache.set(c.mat.uuid, cached);
+    }
+    const cpx = Math.floor(c.hit.uv.x * cached.texData.width);
+    const cpy = Math.floor((1 - c.hit.uv.y) * cached.texData.height);
+    const di = (cpy * cached.texData.width + cpx) * 4;
+    const d = cached.texData.data;
+    if (d[di+3] < 10) continue;
+    const [, sat] = rgbToHsl(d[di], d[di+1], d[di+2]);
+    console.log(`  candidate ${ci}: ${c.hit.object.name}/${c.mat.name} rgb(${d[di]},${d[di+1]},${d[di+2]}) sat=${sat.toFixed(1)}`);
+    if (sat > bestSat) { bestSat = sat; bestIdx = ci; }
+  }
+
+  const hit = candidates[bestIdx].hit;
+  let mat = candidates[bestIdx].mat;
   const mesh = hit.object;
-  // Pick the correct material for multi-material meshes (e.g. Body has Face + Face_effect)
-  let mat;
-  if (Array.isArray(mesh.material) && hit.face) {
-    mat = mesh.material[hit.face.materialIndex] || mesh.material[0];
-  } else {
-    mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-  }
-  if (!mat?.map?.image) {
-    // Try other materials on this mesh if the hit one has no texture
-    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    const alt = mats.find(m => m?.map?.image);
-    if (!alt) return;
-    mat = alt;
-  }
-  if (!mat.map?.image) return;
+  console.log('Best:', mesh.name, mat.name, 'sat:', bestSat.toFixed(1));
 
-  // Sample color from texture at UV
+  // Get the original texture image (cached to survive GPU recolor swaps)
   const tex = mat.map;
-  const img = tex.image;
-  recolorCanvas.width = img.width;
-  recolorCanvas.height = img.height;
-  recolorCtx.drawImage(img, 0, 0);
+  let cached = originalTexCache.get(mat.uuid);
+  if (!cached) {
+    // First time: cache the original image and draw to canvas
+    const img = tex.image;
+    if (img instanceof ImageBitmap || img instanceof HTMLImageElement || img instanceof HTMLCanvasElement) {
+      recolorCanvas.width = img.width;
+      recolorCanvas.height = img.height;
+      recolorCtx.drawImage(img, 0, 0);
+    } else if (img?.data) {
+      recolorCanvas.width = img.width;
+      recolorCanvas.height = img.height;
+      recolorCtx.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
+    } else {
+      console.error('Unsupported texture type:', img?.constructor?.name);
+      return;
+    }
+    cached = {
+      texData: recolorCtx.getImageData(0, 0, img.width, img.height),
+      origTex: tex,
+    };
+    originalTexCache.set(mat.uuid, cached);
+  } else {
+    // Restore from cache
+    recolorCanvas.width = cached.texData.width;
+    recolorCanvas.height = cached.texData.height;
+    recolorCtx.putImageData(cached.texData, 0, 0);
+  }
 
-  const px = Math.floor(hit.uv.x * img.width);
-  const py = Math.floor((1 - hit.uv.y) * img.height);
+  const px = Math.floor(hit.uv.x * cached.texData.width);
+  const py = Math.floor((1 - hit.uv.y) * cached.texData.height);
   const pixel = recolorCtx.getImageData(px, py, 1, 1).data;
 
-  // Store original texture data (only needed for saving)
-  originalTexData = recolorCtx.getImageData(0, 0, img.width, img.height);
+  originalTexData = cached.texData;
 
-  // Init GPU recolor pipeline
-  initRecolorGPU(tex);
+  // Init GPU recolor pipeline with the original texture
+  initRecolorGPU(cached.origTex);
 
   // Find texture/image index
   const texIndex = findTextureIndex(mat);
 
   sampledColor = { r: pixel[0], g: pixel[1], b: pixel[2] };
-  sampledTexInfo = { mesh, material: mat, texture: tex, texIndex, image: img };
+  console.log(`Sampled: rgb(${pixel[0]},${pixel[1]},${pixel[2]}) at UV(${hit.uv.x.toFixed(3)},${hit.uv.y.toFixed(3)}) px(${px},${py})`);
+  sampledTexInfo = { mesh, material: mat, texture: cached.origTex, texIndex };
 
   // Set sampled color HSL on GPU uniform
   const [sH, sS, sL] = rgbToHsl(sampledColor.r, sampledColor.g, sampledColor.b);
@@ -579,7 +638,7 @@ canvas.addEventListener('pointerup', (e) => {
   const hex = `#${pixel[0].toString(16).padStart(2,'0')}${pixel[1].toString(16).padStart(2,'0')}${pixel[2].toString(16).padStart(2,'0')}`;
   document.getElementById('sampled-swatch').style.background = hex;
   document.getElementById('sampled-hex').textContent = hex;
-  document.getElementById('sampled-label').textContent = `${mat.name || mesh.name} (${img.width}x${img.height})`;
+  document.getElementById('sampled-label').textContent = `${mat.name || mesh.name} (${cached.texData.width}x${cached.texData.height})`;
   document.getElementById('recolor-controls').classList.add('active');
   // Init color picker to sampled color
   document.getElementById('rc-color-picker').value = hex;
@@ -591,8 +650,62 @@ canvas.addEventListener('pointerup', (e) => {
     document.getElementById(id + '-val').textContent = '0';
   }
 
-  // Show texture preview
-  updateTexturePreview();
+  // Show texture preview so user can click directly on it
+  showTexPreview(cached.texData);
+
+  // Apply initial recolor
+  scheduleRecolor();
+});
+
+// ---- Texture preview: click to sample directly on the 2D atlas ----
+function showTexPreview(texData) {
+  const previewCanvas = document.getElementById('tex-preview-canvas');
+  const aspect = texData.width / texData.height;
+  previewCanvas.width = 340;
+  previewCanvas.height = Math.round(340 / aspect);
+  const ctx = previewCanvas.getContext('2d');
+  // Draw full-res to temp, then scale down for preview
+  recolorCanvas.width = texData.width;
+  recolorCanvas.height = texData.height;
+  recolorCtx.putImageData(texData, 0, 0);
+  ctx.drawImage(recolorCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+  document.getElementById('tex-preview-name').textContent = sampledTexInfo?.material?.name || 'Texture';
+}
+
+document.getElementById('tex-preview-canvas').addEventListener('click', (e) => {
+  if (!originalTexData || !sampledTexInfo) return;
+  const canvas = e.target;
+  const rect = canvas.getBoundingClientRect();
+  const cx = (e.clientX - rect.left) / rect.width;
+  const cy = (e.clientY - rect.top) / rect.height;
+  const px = Math.floor(cx * originalTexData.width);
+  const py = Math.floor(cy * originalTexData.height);
+  const di = (py * originalTexData.width + px) * 4;
+  const d = originalTexData.data;
+  if (d[di+3] < 10) return;
+
+  sampledColor = { r: d[di], g: d[di+1], b: d[di+2] };
+  console.log(`Tex click: rgb(${d[di]},${d[di+1]},${d[di+2]}) at px(${px},${py})`);
+
+  // Update UI
+  const hex = `#${d[di].toString(16).padStart(2,'0')}${d[di+1].toString(16).padStart(2,'0')}${d[di+2].toString(16).padStart(2,'0')}`;
+  document.getElementById('sampled-swatch').style.background = hex;
+  document.getElementById('sampled-hex').textContent = hex;
+  document.getElementById('rc-color-picker').value = hex;
+  document.getElementById('target-swatch').style.background = hex;
+
+  // Update GPU uniform
+  const [sH, sS, sL] = rgbToHsl(d[di], d[di+1], d[di+2]);
+  if (recolorMat) {
+    recolorMat.uniforms.uSampledHSL.value.set(sH / 360, sS / 100, sL / 100);
+  }
+
+  // Reset sliders and apply
+  for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
+    document.getElementById(id).value = '0';
+    document.getElementById(id + '-val').textContent = '0';
+  }
+  scheduleRecolor();
 });
 
 function findTextureIndex(mat) {
@@ -870,14 +983,19 @@ document.getElementById('rc-apply').addEventListener('click', async () => {
   });
 
   if (resp.ok) {
-    // Update original so further edits stack correctly
-    originalTexData = recolorCtx.getImageData(0, 0, recolorCanvas.width, recolorCanvas.height);
-    // Create new texture from saved data for the GPU pipeline
+    // Update ALL caches so further edits stack on top of saved state
+    const newTexData = recolorCtx.getImageData(0, 0, recolorCanvas.width, recolorCanvas.height);
+    originalTexData = newTexData;
+
     const savedTex = new THREE.CanvasTexture(recolorCanvas);
     savedTex.flipY = sampledTexInfo.texture.flipY;
     savedTex.colorSpace = sampledTexInfo.texture.colorSpace;
     sampledTexInfo.texture = savedTex;
     if (recolorMat) recolorMat.uniforms.tOriginal.value = savedTex;
+
+    // Update the texture cache so next click uses saved version as base
+    const matUuid = sampledTexInfo.material.uuid;
+    originalTexCache.set(matUuid, { texData: newTexData, origTex: savedTex });
     // Reset sliders
     for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
       document.getElementById(id).value = '0';
