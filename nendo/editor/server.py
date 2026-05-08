@@ -16,14 +16,35 @@ from nendo.vrm import Vrm
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-class EditorHandler(SimpleHTTPRequestHandler):
-    vrm_path: Path
-    vrm: Vrm
+class EditorState:
+    """Shared mutable state across request handlers."""
+    def __init__(self, vrm_path: Path, vrm: Vrm) -> None:
+        self.vrm_path = vrm_path
+        self.vrm = vrm
 
-    def __init__(self, *args: Any, vrm_path: Path, vrm: Vrm, **kwargs: Any) -> None:
-        self._vrm_path = vrm_path
-        self._vrm = vrm
+
+class EditorHandler(SimpleHTTPRequestHandler):
+    _state: EditorState  # shared across all requests
+
+    def __init__(self, *args: Any, state: EditorState, **kwargs: Any) -> None:
+        self._state = state
         super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
+
+    @property
+    def _vrm_path(self) -> Path:
+        return self._state.vrm_path
+
+    @_vrm_path.setter
+    def _vrm_path(self, v: Path) -> None:
+        self._state.vrm_path = v
+
+    @property
+    def _vrm(self) -> Vrm:
+        return self._state.vrm
+
+    @_vrm.setter
+    def _vrm(self, v: Vrm) -> None:
+        self._state.vrm = v
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -62,8 +83,6 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self._vrm.meta = data
             self._vrm.save(self._vrm_path)
             self._vrm = Vrm.load(self._vrm_path)
-            # Update class-level reference so other requests see it
-            type(self)._current_vrm = self._vrm
             self._json_response({"ok": True})
         elif path == "/api/springbone":
             data = json.loads(body)
@@ -212,10 +231,13 @@ class EditorHandler(SimpleHTTPRequestHandler):
         self._json_response({"ok": True})
 
     def _upload_vrm(self, body: bytes) -> None:
-        """Replace the current VRM with an uploaded one."""
-        # Save to the same path (overwrite)
-        self._vrm_path.write_bytes(body)
-        self._vrm = Vrm.load(self._vrm_path)
+        """Switch to an uploaded VRM without overwriting the original."""
+        import tempfile
+        # Save to a temp file, not the original
+        tmp = Path(tempfile.mktemp(suffix=".vrm", prefix="nendo_"))
+        tmp.write_bytes(body)
+        self._vrm_path = tmp
+        self._vrm = Vrm.load(tmp)
         self._json_response({"ok": True, "summary": self._vrm.summary()})
 
     def _bake_shape_keys(self, data: dict) -> None:
@@ -269,8 +291,9 @@ class EditorHandler(SimpleHTTPRequestHandler):
 def start_server(vrm_path: Path, port: int = 8765) -> None:
     vrm_path = vrm_path.resolve()
     vrm = Vrm.load(vrm_path)
+    state = EditorState(vrm_path, vrm)
 
-    handler = partial(EditorHandler, vrm_path=vrm_path, vrm=vrm)
+    handler = partial(EditorHandler, state=state)
     server = HTTPServer(("127.0.0.1", port), handler)
 
     print(f"VRM Editor: http://localhost:{port}")
