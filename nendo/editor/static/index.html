@@ -296,7 +296,12 @@ canvas { display: block; width: 100%; height: 100%; }
       </div>
 
       <div class="recolor-controls" id="recolor-controls">
-        <!-- Fine-tune sliders (hidden by default, toggle to show) -->
+        <!-- Mode toggle -->
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <button class="view-btn active" id="mode-hue" style="flex:1;text-align:center;padding:6px">Hue Shift</button>
+          <button class="view-btn" id="mode-tint" style="flex:1;text-align:center;padding:6px">Tint</button>
+        </div>
+        <!-- Fine-tune sliders -->
         <div style="margin-bottom:8px">
           <button class="view-btn" id="toggle-sliders" style="width:100%;text-align:center;padding:6px">Fine-tune sliders</button>
         </div>
@@ -784,6 +789,8 @@ uniform float uBriShift;   // [-1, 1]
 uniform float uTolerance;  // [0, 1] (normalized from 0-80)
 uniform vec2 uClickPos;    // click position on texture [0,1]
 uniform float uRadius;     // spatial radius [0, 1] (0=unlimited)
+uniform int uMode;         // 0=hue shift, 1=tint (multiply)
+uniform vec3 uTintColor;   // tint color for multiply mode
 varying vec2 vUv;
 
 vec3 rgbToHsl(vec3 c) {
@@ -831,15 +838,26 @@ void main() {
     return;
   }
 
-  // Spatial mask: only recolor near the click point on the texture
+  // Spatial mask
+  float spatialFactor = 1.0;
   if (uRadius > 0.0) {
     float dist = distance(vUv, uClickPos);
     if (dist > uRadius) {
       gl_FragColor = texel;
       return;
     }
+    // Soft edge falloff
+    spatialFactor = smoothstep(uRadius, uRadius * 0.7, dist);
   }
 
+  // Mode 1: Tint (multiply) — for clothing, large areas
+  if (uMode == 1) {
+    vec3 tinted = texel.rgb * uTintColor;
+    gl_FragColor = vec4(mix(texel.rgb, tinted, spatialFactor), texel.a);
+    return;
+  }
+
+  // Mode 0: Hue shift — for specific colored elements (eyes, hair)
   vec3 hsl = rgbToHsl(texel.rgb);
 
   float hDist = abs(hsl.x - uSampledHSL.x);
@@ -854,7 +872,7 @@ void main() {
     return;
   }
 
-  float falloff = 1.0 - sim / tol;
+  float falloff = (1.0 - sim / tol) * spatialFactor;
   vec3 shifted = vec3(
     hsl.x + uHueShift * falloff,
     hsl.y + uSatShift * falloff,
@@ -882,7 +900,9 @@ function initRecolorGPU(texture) {
       uBriShift: { value: 0 },
       uTolerance: { value: 0.375 }, // 30/80
       uClickPos: { value: new THREE.Vector2(0.5, 0.5) },
-      uRadius: { value: 0.0 }, // 0 = unlimited
+      uRadius: { value: 0.0 },
+      uMode: { value: 0 },
+      uTintColor: { value: new THREE.Vector3(1, 1, 1) },
     },
     vertexShader: RECOLOR_VS,
     fragmentShader: RECOLOR_FS,
@@ -956,6 +976,12 @@ document.getElementById('rc-color-picker').addEventListener('input', (e) => {
   const tr = parseInt(hex.slice(1,3), 16);
   const tg = parseInt(hex.slice(3,5), 16);
   const tb = parseInt(hex.slice(5,7), 16);
+
+  // Update tint color for Tint mode
+  if (recolorMat) {
+    recolorMat.uniforms.uTintColor.value.set(tr/255, tg/255, tb/255);
+  }
+
   const [tH, tS, tL] = rgbToHsl(tr, tg, tb);
   const [sH, sS, sL] = rgbToHsl(sampledColor.r, sampledColor.g, sampledColor.b);
 
@@ -974,6 +1000,23 @@ document.getElementById('rc-color-picker').addEventListener('input', (e) => {
   document.getElementById('rc-bri').value = Math.round(Math.max(-100, Math.min(100, lShift)));
   document.getElementById('rc-bri-val').textContent = Math.round(Math.max(-100, Math.min(100, lShift)));
 
+  scheduleRecolor();
+});
+
+// Mode toggle
+let recolorModeSel = 0; // 0=hue, 1=tint
+document.getElementById('mode-hue').addEventListener('click', () => {
+  recolorModeSel = 0;
+  document.getElementById('mode-hue').classList.add('active');
+  document.getElementById('mode-tint').classList.remove('active');
+  if (recolorMat) recolorMat.uniforms.uMode.value = 0;
+  scheduleRecolor();
+});
+document.getElementById('mode-tint').addEventListener('click', () => {
+  recolorModeSel = 1;
+  document.getElementById('mode-tint').classList.add('active');
+  document.getElementById('mode-hue').classList.remove('active');
+  if (recolorMat) recolorMat.uniforms.uMode.value = 1;
   scheduleRecolor();
 });
 
