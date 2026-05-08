@@ -430,6 +430,22 @@ function initIdlePose() {
       idleBones._base[name] = { x: bone.rotation.x, y: bone.rotation.y, z: bone.rotation.z };
     }
   }
+
+  // VRM 0.x defaults to T-pose — relax arms down
+  // VRM 1.0 already has a natural rest pose, skip
+  const isV0 = !vrm?.meta?.metaVersion; // VRM 1.0 has metaVersion
+  if (isV0 && idleBones.leftUpperArm && idleBones.rightUpperArm) {
+    idleBones.leftUpperArm.rotation.z += 1.1;
+    idleBones.rightUpperArm.rotation.z -= 1.1;
+    if (idleBones.leftLowerArm) idleBones.leftLowerArm.rotation.z += 0.3;
+    if (idleBones.rightLowerArm) idleBones.rightLowerArm.rotation.z -= 0.3;
+    // Update base to include the arm adjustment
+    for (const name of ['leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm']) {
+      if (idleBones[name]) {
+        idleBones._base[name] = { x: idleBones[name].rotation.x, y: idleBones[name].rotation.y, z: idleBones[name].rotation.z };
+      }
+    }
+  }
 }
 
 function updateIdle(dt) {
