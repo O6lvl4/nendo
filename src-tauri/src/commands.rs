@@ -38,14 +38,12 @@ pub fn open_vrm(path: String, state: State<'_, AppStateMutex>) -> Result<Value, 
 
 #[tauri::command]
 pub fn get_vrm_asset_url(
-    _app: tauri::AppHandle,
     state: State<'_, AppStateMutex>,
 ) -> Result<String, String> {
     let guard = state.lock().unwrap();
     let st = guard.as_ref().ok_or("no VRM loaded")?;
-    let url = tauri::Url::from_file_path(&st.vrm_path)
-        .map_err(|_| "invalid path")?;
-    Ok(url.to_string())
+    let abs = st.vrm_path.canonicalize().map_err(|e| e.to_string())?;
+    Ok(abs.to_string_lossy().to_string())
 }
 
 #[tauri::command]

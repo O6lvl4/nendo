@@ -423,20 +423,12 @@ function initIdlePose() {
 
   console.log('Idle bones resolved:', Object.entries(idleBones).map(([k,v]) => `${k}:${v?.name||'NULL'}`).join(', '));
 
-  // Natural relaxed pose — arms down, slight elbow bend
-  if (idleBones.leftUpperArm) {
-    idleBones.leftUpperArm.rotation.z = 1.1;
-    idleBones.leftUpperArm.rotation.x = 0.1;
-  }
-  if (idleBones.rightUpperArm) {
-    idleBones.rightUpperArm.rotation.z = -1.1;
-    idleBones.rightUpperArm.rotation.x = 0.1;
-  }
-  if (idleBones.leftLowerArm) {
-    idleBones.leftLowerArm.rotation.z = 0.3;
-  }
-  if (idleBones.rightLowerArm) {
-    idleBones.rightLowerArm.rotation.z = -0.3;
+  // Save the default pose rotations so idle animation applies offsets, not absolutes
+  idleBones._base = {};
+  for (const [name, bone] of Object.entries(idleBones)) {
+    if (bone && bone.rotation) {
+      idleBones._base[name] = { x: bone.rotation.x, y: bone.rotation.y, z: bone.rotation.z };
+    }
   }
 }
 
@@ -444,31 +436,23 @@ function updateIdle(dt) {
   if (!vrm || !idleRunning) return;
   idleTime += dt;
 
-  // Breathing: spine + chest oscillation
-  if (idleBones.spine) {
-    idleBones.spine.rotation.x = Math.sin(idleTime * 1.2) * 0.015;
+  const base = idleBones._base || {};
+
+  // Breathing: small offset from default pose
+  if (idleBones.spine && base.spine) {
+    idleBones.spine.rotation.x = base.spine.x + Math.sin(idleTime * 1.2) * 0.012;
   }
-  if (idleBones.chest) {
-    idleBones.chest.rotation.x = Math.sin(idleTime * 1.2 + 0.3) * 0.01;
+  if (idleBones.chest && base.chest) {
+    idleBones.chest.rotation.x = base.chest.x + Math.sin(idleTime * 1.2 + 0.3) * 0.008;
   }
 
   // Head sway
-  if (idleBones.head) {
-    idleBones.head.rotation.y = Math.sin(idleTime * 0.4) * 0.03;
-    idleBones.head.rotation.x = Math.sin(idleTime * 0.3 + 1) * 0.015 - 0.02;
+  if (idleBones.head && base.head) {
+    idleBones.head.rotation.y = base.head.y + Math.sin(idleTime * 0.4) * 0.025;
+    idleBones.head.rotation.x = base.head.x + Math.sin(idleTime * 0.3 + 1) * 0.012;
   }
-  if (idleBones.neck) {
-    idleBones.neck.rotation.y = Math.sin(idleTime * 0.35 + 0.5) * 0.015;
-  }
-
-  // Subtle arm sway
-  if (idleBones.leftUpperArm) {
-    idleBones.leftUpperArm.rotation.z = 1.1 + Math.sin(idleTime * 0.5) * 0.02;
-    idleBones.leftUpperArm.rotation.x = 0.1 + Math.sin(idleTime * 0.7) * 0.01;
-  }
-  if (idleBones.rightUpperArm) {
-    idleBones.rightUpperArm.rotation.z = -1.1 + Math.sin(idleTime * 0.5 + 0.5) * 0.02;
-    idleBones.rightUpperArm.rotation.x = 0.1 + Math.sin(idleTime * 0.7 + 0.5) * 0.01;
+  if (idleBones.neck && base.neck) {
+    idleBones.neck.rotation.y = base.neck.y + Math.sin(idleTime * 0.35 + 0.5) * 0.01;
   }
 
   // Blinking
@@ -854,7 +838,7 @@ document.getElementById('reset-all').addEventListener('click',()=>{
 
 // ---- Presets ----
 async function loadPresets() {
-  const resp = await fetch('/api/presets'); const presets = await resp.json();
+  const presets = await api('get_presets');
   const container = document.getElementById('presets');
   container.querySelectorAll('.preset-chip').forEach(c=>c.remove());
   for (const preset of presets) {
@@ -867,7 +851,7 @@ async function loadPresets() {
       chip.classList.add('active');
     });
     chip.querySelector('.del').addEventListener('click',async()=>{
-      await fetch(`/api/presets/${encodeURIComponent(preset.name)}`,{method:'DELETE'});
+      await api('delete_preset', { name: preset.name });
       loadPresets(); showToast('Deleted');
     });
     container.insertBefore(chip,container.lastElementChild);
@@ -895,7 +879,7 @@ document.getElementById('save-preset-btn').addEventListener('click',()=>{
 document.getElementById('save-cancel').addEventListener('click',()=>document.getElementById('save-dialog').classList.remove('show'));
 document.getElementById('save-ok').addEventListener('click',async()=>{
   const name=document.getElementById('preset-name').value.trim(); if(!name)return;
-  await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,weights:{...exprState}})});
+  await api('save_preset', { preset: { name, weights: { ...exprState } } });
   document.getElementById('save-dialog').classList.remove('show');
   loadPresets(); showToast(`Saved: ${name}`);
 });
@@ -904,8 +888,37 @@ document.getElementById('preset-name').addEventListener('keydown',(e)=>{
   if(e.key==='Escape') document.getElementById('save-cancel').click();
 });
 
-// ================ LOAD VRM ================
+// ================ TAURI / BROWSER BRIDGE ================
 const IS_TAURI = !!window.__TAURI__;
+const invoke = IS_TAURI ? window.__TAURI__.core.invoke : null;
+
+// Unified API calls — Tauri invoke or HTTP fetch
+async function api(cmd, args = {}) {
+  if (IS_TAURI) {
+    return await invoke(cmd, args);
+  }
+  // Map command names to HTTP endpoints
+  const routes = {
+    get_presets: ['/api/presets', 'GET'],
+    save_preset: ['/api/presets', 'POST', args.preset],
+    delete_preset: [`/api/presets/${encodeURIComponent(args.name)}`, 'DELETE'],
+    get_meta: ['/api/meta', 'GET'],
+    set_meta: ['/api/meta', 'POST', args.data],
+    get_summary: ['/api/summary', 'GET'],
+  };
+  const route = routes[cmd];
+  if (!route) throw new Error(`Unknown API command: ${cmd}`);
+  const [url, method, body] = route;
+  const opts = { method };
+  if (body) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  const resp = await fetch(url, opts);
+  return await resp.json();
+}
+
+// ================ LOAD VRM ================
 const loader = new GLTFLoader();
 loader.register((parser) => new VRMLoaderPlugin(parser));
 
@@ -918,18 +931,21 @@ function loadVRM() {
   textEl.textContent = IS_TAURI ? 'Loading from disk...' : 'Loading...';
   pctEl.textContent = '';
 
-  // In Tauri: load via file:// URL (no HTTP transfer)
-  // In browser: load via Python server
-  const urlPromise = IS_TAURI
-    ? window.__TAURI__.core.invoke('get_vrm_asset_url')
+  const vrmUrlPromise = IS_TAURI
+    ? invoke('get_vrm_asset_url').then(path => window.__TAURI__.core.convertFileSrc(path))
     : Promise.resolve('/api/vrm');
 
-  urlPromise.then(vrmUrl => {
+  vrmUrlPromise.then(vrmUrl => {
+    console.log('Loading VRM from:', vrmUrl);
     loader.load(vrmUrl, (gltf) => {
+      console.log('GLTF loaded. has vrm:', !!gltf.userData.vrm, 'scene children:', gltf.scene?.children?.length);
       vrm = gltf.userData.vrm;
+      if (!vrm) { textEl.textContent = 'VRM parse failed'; return; }
+
       VRMUtils.rotateVRM0(vrm);
       scene.add(vrm.scene);
       vrm.scene.updateMatrixWorld(true);
+      console.log('Scene children after add:', scene.children.length);
 
       mixer = new THREE.AnimationMixer(vrm.scene);
       initIdlePose();
@@ -937,10 +953,17 @@ function loadVRM() {
       const r = getRef();
       const y = (r.head[1]+r.hips[1])/2 + r.height*0.2;
       moveTo([0, y, -r.height*1.2], [0, y, 0]);
+      console.log('Camera:', camera.position.x.toFixed(2), camera.position.y.toFixed(2), camera.position.z.toFixed(2));
+      console.log('Target:', controls.target.x.toFixed(2), controls.target.y.toFixed(2), controls.target.z.toFixed(2));
 
       buildExprList();
       loadPresets();
       setStatus('Ready — drop FBX to animate');
+
+      // Force resize + render (Tauri WebView may init with 0-size canvas)
+      resize();
+      renderer.render(scene, camera);
+      console.log('Canvas:', canvas.width, 'x', canvas.height, 'GL:', renderer.getContext().drawingBufferWidth, 'x', renderer.getContext().drawingBufferHeight);
 
       overlay.classList.add('hidden');
       setTimeout(() => overlay.style.display = 'none', 500);

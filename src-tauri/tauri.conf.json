@@ -11,6 +11,7 @@
     "windows": [
       {
         "title": "nendo",
+        "url": "playground.html",
         "width": 1400,
         "height": 900,
         "resizable": true,
