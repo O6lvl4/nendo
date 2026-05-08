@@ -571,6 +571,96 @@ def texture_list(
         console.print(f"  {i}: [cyan]{name}[/cyan] ({size:,} bytes){mat_str}")
 
 
+@texture_app.command("recolor")
+def texture_recolor(
+    file: Path = typer.Argument(..., help="Path to PNG/JPG file"),
+    hue: Optional[int] = typer.Option(None, "--hue", help="Hue shift in degrees (-180 to 180)"),
+    tint: Optional[str] = typer.Option(None, "--tint", help="Tint color as hex (e.g. #ff3333)"),
+    saturation: Optional[int] = typer.Option(None, "--saturation", "-s", help="Saturation adjust (-100 to 100)"),
+    brightness: Optional[int] = typer.Option(None, "--brightness", "-b", help="Brightness adjust (-100 to 100)"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output path (default: overwrite)"),
+) -> None:
+    """Recolor a texture PNG: hue shift, tint, or adjust saturation/brightness."""
+    import colorsys
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(file).convert("RGBA")
+    arr = np.array(img, dtype=np.float32)
+    rgb = arr[:, :, :3] / 255.0
+    alpha = arr[:, :, 3:]
+
+    if tint:
+        # Multiply mode: multiply RGB by tint color
+        hex_clean = tint.lstrip("#")
+        tr = int(hex_clean[0:2], 16) / 255.0
+        tg = int(hex_clean[2:4], 16) / 255.0
+        tb = int(hex_clean[4:6], 16) / 255.0
+        rgb[:, :, 0] *= tr
+        rgb[:, :, 1] *= tg
+        rgb[:, :, 2] *= tb
+        console.print(f"  Tinted with {tint}")
+
+    if hue is not None or saturation is not None or brightness is not None:
+        # Convert to HSV, modify, convert back (vectorized)
+        h_shift = (hue or 0) / 360.0
+        s_adj = (saturation or 0) / 100.0
+        b_adj = (brightness or 0) / 100.0
+
+        r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+        maxc = np.maximum(np.maximum(r, g), b)
+        minc = np.minimum(np.minimum(r, g), b)
+        v = maxc
+        delta = maxc - minc
+
+        # Saturation
+        s = np.where(maxc > 0, delta / maxc, 0)
+
+        # Hue
+        h = np.zeros_like(r)
+        mask = delta > 0
+        rm = mask & (maxc == r)
+        gm = mask & (maxc == g) & ~rm
+        bm = mask & ~rm & ~gm
+        h[rm] = ((g[rm] - b[rm]) / delta[rm]) % 6
+        h[gm] = ((b[gm] - r[gm]) / delta[gm]) + 2
+        h[bm] = ((r[bm] - g[bm]) / delta[bm]) + 4
+        h /= 6.0
+
+        # Apply adjustments
+        h = (h + h_shift) % 1.0
+        s = np.clip(s + s_adj, 0, 1)
+        v = np.clip(v + b_adj, 0, 1)
+
+        # HSV back to RGB
+        hi = (h * 6).astype(int) % 6
+        f = h * 6 - hi
+        p = v * (1 - s)
+        q = v * (1 - f * s)
+        t = v * (1 - (1 - f) * s)
+
+        out = np.zeros_like(rgb)
+        for i, (r_val, g_val, b_val) in enumerate([(v, t, p), (q, v, p), (p, v, t), (p, q, v), (t, p, v), (v, p, q)]):
+            m = hi == i
+            out[:, :, 0][m] = r_val[m]
+            out[:, :, 1][m] = g_val[m]
+            out[:, :, 2][m] = b_val[m]
+
+        rgb = out
+        parts = []
+        if hue: parts.append(f"hue {hue:+d}")
+        if saturation: parts.append(f"sat {saturation:+d}")
+        if brightness: parts.append(f"bri {brightness:+d}")
+        console.print(f"  Adjusted: {', '.join(parts)}")
+
+    # Recombine and save
+    result = np.concatenate([np.clip(rgb * 255, 0, 255), alpha], axis=2).astype(np.uint8)
+    out_img = Image.fromarray(result, "RGBA")
+    out_path = output or file
+    out_img.save(out_path)
+    console.print(f"  [green]Saved to {out_path}[/green]")
+
+
 # ---- migrate ----
 
 
