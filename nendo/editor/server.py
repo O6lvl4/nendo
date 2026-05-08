@@ -75,6 +75,8 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self._json_response({"ok": True})
         elif path.startswith("/api/texture/"):
             self._replace_texture(path, body)
+        elif path == "/api/upload-vrm":
+            self._upload_vrm(body)
         elif path == "/api/bake":
             data = json.loads(body)
             self._bake_shape_keys(data)
@@ -208,6 +210,13 @@ class EditorHandler(SimpleHTTPRequestHandler):
         data = [d for d in data if d.get("name") != name]
         p.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
         self._json_response({"ok": True})
+
+    def _upload_vrm(self, body: bytes) -> None:
+        """Replace the current VRM with an uploaded one."""
+        # Save to the same path (overwrite)
+        self._vrm_path.write_bytes(body)
+        self._vrm = Vrm.load(self._vrm_path)
+        self._json_response({"ok": True, "summary": self._vrm.summary()})
 
     def _bake_shape_keys(self, data: dict) -> None:
         from nendo.bake import bake_shape_keys

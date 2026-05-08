@@ -235,6 +235,7 @@ canvas { display: block; width: 100%; height: 100%; }
     <button class="view-btn" data-view="back">Back</button>
   </div>
   <div id="recolor-hint">Click on the model to pick a color</div>
+  <div id="drop-overlay" style="position:absolute;inset:0;background:rgba(0,255,153,0.08);border:3px dashed var(--accent);display:none;align-items:center;justify-content:center;z-index:50;font-size:18px;font-weight:600;color:var(--accent)">Drop VRM here</div>
 </div>
 
 <div id="panel">
@@ -1413,6 +1414,34 @@ function animate() {
 }
 loadVRM();
 animate();
+
+// ---- VRM Drag & Drop ----
+const dropOverlay = document.getElementById('drop-overlay');
+['dragenter','dragover'].forEach(ev => {
+  document.addEventListener(ev, (e) => { e.preventDefault(); dropOverlay.style.display = 'flex'; });
+});
+['dragleave'].forEach(ev => {
+  dropOverlay.addEventListener(ev, () => { dropOverlay.style.display = 'none'; });
+});
+document.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dropOverlay.style.display = 'none';
+  const file = [...(e.dataTransfer?.files || [])].find(f => f.name.toLowerCase().endsWith('.vrm'));
+  if (!file) { showToast('Drop a .vrm file'); return; }
+  showToast(`Uploading ${file.name}...`);
+  const buf = await file.arrayBuffer();
+  const resp = await fetch('/api/upload-vrm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: buf,
+  });
+  if (resp.ok) {
+    showToast('Loaded — reloading...');
+    setTimeout(() => location.reload(), 500);
+  } else {
+    showToast('Upload failed');
+  }
+});
 </script>
 </body>
 </html>
