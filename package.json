@@ -1,0 +1,15 @@
+{
+  "name": "nendo",
+  "version": "1.0.0",
+  "description": "Avatar sculpting toolkit — inspect, edit, and visually customize 3D avatar files.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.1"
+  }
+}

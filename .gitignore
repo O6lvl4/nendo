@@ -5,3 +5,7 @@ dist/
 build/
 .venv/
 *.vrm
+# Tauri
+src-tauri/target/
+node_modules/
+src-tauri/gen/

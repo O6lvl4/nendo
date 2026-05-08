@@ -905,70 +905,57 @@ document.getElementById('preset-name').addEventListener('keydown',(e)=>{
 });
 
 // ================ LOAD VRM ================
+const IS_TAURI = !!window.__TAURI__;
 const loader = new GLTFLoader();
 loader.register((parser) => new VRMLoaderPlugin(parser));
 
-async function loadVRM() {
+function loadVRM() {
   setStatus('Loading...');
   const overlay = document.getElementById('loading-overlay');
   const pctEl = document.getElementById('loading-pct');
   const textEl = document.getElementById('loading-text');
 
-  textEl.textContent = 'Downloading...';
-  const resp = await fetch('/api/vrm');
-  const total = parseInt(resp.headers.get('Content-Length') || '0');
-  const reader = resp.body.getReader();
-  const chunks = [];
-  let received = 0;
+  textEl.textContent = IS_TAURI ? 'Loading from disk...' : 'Loading...';
+  pctEl.textContent = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.length;
-    if (total) {
-      const pct = Math.round(received / total * 100);
-      pctEl.textContent = `${pct}%`;
-    }
-  }
+  // In Tauri: load via file:// URL (no HTTP transfer)
+  // In browser: load via Python server
+  const urlPromise = IS_TAURI
+    ? window.__TAURI__.core.invoke('get_vrm_asset_url')
+    : Promise.resolve('/api/vrm');
 
-  const blob = new Blob(chunks);
-  pctEl.textContent = '100%';
-  textEl.textContent = 'Parsing model...';
+  urlPromise.then(vrmUrl => {
+    loader.load(vrmUrl, (gltf) => {
+      vrm = gltf.userData.vrm;
+      VRMUtils.rotateVRM0(vrm);
+      scene.add(vrm.scene);
+      vrm.scene.updateMatrixWorld(true);
 
-  const url = URL.createObjectURL(blob);
-  loader.load(url, (gltf) => {
-    vrm = gltf.userData.vrm;
-    VRMUtils.rotateVRM0(vrm);
-    scene.add(vrm.scene);
-    vrm.scene.updateMatrixWorld(true);
-    URL.revokeObjectURL(url);
+      mixer = new THREE.AnimationMixer(vrm.scene);
+      initIdlePose();
 
-    mixer = new THREE.AnimationMixer(vrm.scene);
+      const r = getRef();
+      const y = (r.head[1]+r.hips[1])/2 + r.height*0.2;
+      moveTo([0, y, -r.height*1.2], [0, y, 0]);
 
-    // Set natural idle pose
-    initIdlePose();
+      buildExprList();
+      loadPresets();
+      setStatus('Ready — drop FBX to animate');
 
-    // Start with bust view
-    const r = getRef();
-    const y = (r.head[1]+r.hips[1])/2 + r.height*0.2;
-    moveTo([0, y, -r.height*1.2], [0, y, 0]);
-
-    buildExprList();
-    loadPresets();
-    setStatus('Ready — drop FBX to animate');
-
-    // Hide loading overlay
-    overlay.classList.add('hidden');
-    setTimeout(() => overlay.style.display = 'none', 500);
-  }, (p) => {
-    if (p.total) {
-      const pct = Math.round(p.loaded / p.total * 100);
-      pctEl.textContent = `${pct}%`;
-      textEl.textContent = 'Parsing model...';
-    }
-  },
-  (err) => { setStatus(`Error: ${err.message}`); textEl.textContent = `Error: ${err.message}`; });
+      overlay.classList.add('hidden');
+      setTimeout(() => overlay.style.display = 'none', 500);
+    }, (p) => {
+      if (p.total) {
+        const pct = Math.round(p.loaded / p.total * 100);
+        pctEl.textContent = `${pct}%`;
+        textEl.textContent = pct < 100 ? 'Loading...' : 'Building 3D scene...';
+      }
+    }, (err) => {
+      console.error('VRM load error:', err);
+      textEl.textContent = 'Error loading VRM';
+      pctEl.textContent = '';
+    });
+  });
 }
 
 // ---- Render ----
