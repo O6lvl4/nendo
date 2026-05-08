@@ -64,6 +64,8 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self._serve_texture(path)
         elif path == "/api/textures":
             self._list_textures()
+        elif path == "/api/textures/export":
+            self._export_textures_zip()
         elif path == "/api/presets":
             self._list_presets()
         elif path == "/playground":
@@ -177,6 +179,27 @@ class EditorHandler(SimpleHTTPRequestHandler):
                 "materials": tex_to_mats.get(i, []),
             })
         self._json_response(result)
+
+    def _export_textures_zip(self) -> None:
+        import io
+        import zipfile
+
+        images = self._vrm.glb.json_data.get("images", [])
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for i, img in enumerate(images):
+                name = img.get("name", f"texture_{i}")
+                ext = ".jpg" if "jpeg" in img.get("mimeType", "") else ".png"
+                data = self._vrm.glb.extract_image(i)
+                zf.writestr(f"textures/{name}{ext}", data)
+
+        zip_bytes = buf.getvalue()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", "attachment; filename=textures.zip")
+        self.send_header("Content-Length", str(len(zip_bytes)))
+        self.end_headers()
+        self.wfile.write(zip_bytes)
 
     def _serve_texture(self, path: str) -> None:
         idx = int(path.rsplit("/", 1)[-1])

@@ -469,24 +469,14 @@ async function buildTextureList() {
   }
 }
 
-// Export all textures as a zip download
-document.getElementById('tex-export-btn').addEventListener('click', async () => {
-  showToast('Exporting textures...');
-  const resp = await fetch('/api/textures');
-  const textures = await resp.json();
-  for (const tex of textures) {
-    const r = await fetch(`/api/texture/${tex.index}`);
-    const blob = await r.blob();
-    const ext = tex.mimeType?.includes('jpeg') ? '.jpg' : '.png';
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${tex.name}${ext}`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    // Small delay to avoid browser blocking multiple downloads
-    await new Promise(r => setTimeout(r, 200));
-  }
-  showToast(`Exported ${textures.length} textures`);
+// Export all textures as zip
+document.getElementById('tex-export-btn').addEventListener('click', () => {
+  showToast('Exporting...');
+  const a = document.createElement('a');
+  a.href = '/api/textures/export';
+  a.download = 'textures.zip';
+  a.click();
+  setTimeout(() => showToast('Exported textures.zip'), 1000);
 });
 
 // Import edited textures
