@@ -322,6 +322,11 @@ canvas { display: block; width: 100%; height: 100%; }
           <input type="range" id="rc-tol" min="5" max="80" value="30">
           <span class="val" id="rc-tol-val">30</span>
         </div>
+        <div class="slider-row">
+          <label>Region</label>
+          <input type="range" id="rc-radius" min="0" max="100" value="0">
+          <span class="val" id="rc-radius-val">all</span>
+        </div>
         <div class="recolor-actions">
           <button class="reset-btn" id="rc-reset">Reset</button>
           <button class="apply-btn" id="rc-apply">Apply & Save</button>
@@ -636,10 +641,11 @@ canvas.addEventListener('pointerup', (e) => {
   console.log(`Sampled: rgb(${pixel[0]},${pixel[1]},${pixel[2]}) at UV(${hit.uv.x.toFixed(3)},${hit.uv.y.toFixed(3)}) px(${px},${py})`);
   sampledTexInfo = { mesh, material: mat, texture: cached.origTex, texIndex };
 
-  // Set sampled color HSL on GPU uniform
+  // Set sampled color HSL and click position on GPU uniforms
   const [sH, sS, sL] = rgbToHsl(sampledColor.r, sampledColor.g, sampledColor.b);
   if (recolorMat) {
     recolorMat.uniforms.uSampledHSL.value.set(sH / 360, sS / 100, sL / 100);
+    recolorMat.uniforms.uClickPos.value.set(hit.uv.x, 1.0 - hit.uv.y);
   }
 
   // Update UI
@@ -729,10 +735,11 @@ document.getElementById('tex-preview-canvas').addEventListener('click', (e) => {
   document.getElementById('rc-color-picker').value = hex;
   document.getElementById('target-swatch').style.background = hex;
 
-  // Update GPU uniform
-  const [sH, sS, sL] = rgbToHsl(d[di], d[di+1], d[di+2]);
+  // Update GPU uniform + click position
+  const [sH, sS, sL] = rgbToHsl(r, g, b);
   if (recolorMat) {
     recolorMat.uniforms.uSampledHSL.value.set(sH / 360, sS / 100, sL / 100);
+    recolorMat.uniforms.uClickPos.value.set(cx, cy);
   }
 
   // Reset sliders and apply
@@ -775,6 +782,8 @@ uniform float uHueShift;   // [-0.5, 0.5]
 uniform float uSatShift;   // [-1, 1]
 uniform float uBriShift;   // [-1, 1]
 uniform float uTolerance;  // [0, 1] (normalized from 0-80)
+uniform vec2 uClickPos;    // click position on texture [0,1]
+uniform float uRadius;     // spatial radius [0, 1] (0=unlimited)
 varying vec2 vUv;
 
 vec3 rgbToHsl(vec3 c) {
@@ -821,15 +830,24 @@ void main() {
     gl_FragColor = texel;
     return;
   }
+
+  // Spatial mask: only recolor near the click point on the texture
+  if (uRadius > 0.0) {
+    float dist = distance(vUv, uClickPos);
+    if (dist > uRadius) {
+      gl_FragColor = texel;
+      return;
+    }
+  }
+
   vec3 hsl = rgbToHsl(texel.rgb);
 
-  // Hue distance (circular)
   float hDist = abs(hsl.x - uSampledHSL.x);
   hDist = min(hDist, 1.0 - hDist) * 360.0;
   float sDist = abs(hsl.y - uSampledHSL.y) * 100.0;
   float lDist = abs(hsl.z - uSampledHSL.z) * 100.0;
   float sim = hDist + sDist * 0.3 + lDist * 0.2;
-  float tol = uTolerance * 80.0; // scale back to 0-80 range
+  float tol = uTolerance * 80.0;
 
   if (sim > tol) {
     gl_FragColor = texel;
@@ -863,6 +881,8 @@ function initRecolorGPU(texture) {
       uSatShift: { value: 0 },
       uBriShift: { value: 0 },
       uTolerance: { value: 0.375 }, // 30/80
+      uClickPos: { value: new THREE.Vector2(0.5, 0.5) },
+      uRadius: { value: 0.0 }, // 0 = unlimited
     },
     vertexShader: RECOLOR_VS,
     fragmentShader: RECOLOR_FS,
@@ -914,10 +934,13 @@ function scheduleRecolor() {
   const briShift = parseInt(document.getElementById('rc-bri').value) / 100;
   const tolerance = parseInt(document.getElementById('rc-tol').value) / 80;
 
+  const radius = parseInt(document.getElementById('rc-radius').value) / 100;
+
   recolorMat.uniforms.uHueShift.value = hueShift;
   recolorMat.uniforms.uSatShift.value = satShift;
   recolorMat.uniforms.uBriShift.value = briShift;
   recolorMat.uniforms.uTolerance.value = tolerance;
+  recolorMat.uniforms.uRadius.value = radius;
 
   runRecolorGPU();
   applyRecolorToMaterial();
@@ -967,9 +990,14 @@ for (const id of ['rc-hue', 'rc-sat', 'rc-bri']) {
     scheduleRecolor();
   });
 }
-// Tolerance: GPU handles it instantly, no debounce needed
+// Tolerance + Region: GPU handles instantly
 document.getElementById('rc-tol').addEventListener('input', (e) => {
   document.getElementById('rc-tol-val').textContent = e.target.value;
+  scheduleRecolor();
+});
+document.getElementById('rc-radius').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value);
+  document.getElementById('rc-radius-val').textContent = v === 0 ? 'all' : v + '%';
   scheduleRecolor();
 });
 
