@@ -483,6 +483,94 @@ def bake(
         console.print(f"[green]Saved to {out_path}[/green]")
 
 
+# ---- texture export/import ----
+
+texture_app = typer.Typer(help="Texture export/import")
+app.add_typer(texture_app, name="texture")
+
+
+@texture_app.command("export")
+def texture_export(
+    file: Path = typer.Argument(..., help="Path to .vrm file"),
+    output_dir: Path = typer.Option(".", "--out", "-o", help="Output directory"),
+) -> None:
+    """Export all textures from a VRM as PNG files."""
+    vrm = Vrm.load(file)
+    images = vrm.glb.json_data.get("images", [])
+    if not images:
+        console.print("[yellow]No images found[/yellow]")
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for i, img in enumerate(images):
+        name = img.get("name", f"texture_{i}")
+        ext = ".png" if "png" in img.get("mimeType", "png") else ".jpg"
+        out_path = output_dir / f"{name}{ext}"
+        data = vrm.glb.extract_image(i)
+        out_path.write_bytes(data)
+        console.print(f"  [green]{out_path}[/green] ({len(data):,} bytes)")
+
+    console.print(f"\nExported {len(images)} textures to {output_dir}/")
+
+
+@texture_app.command("import")
+def texture_import(
+    file: Path = typer.Argument(..., help="Path to .vrm file"),
+    from_dir: Path = typer.Option(..., "--from", "-f", help="Directory with edited textures"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output path (default: overwrite)"),
+) -> None:
+    """Import edited textures back into a VRM."""
+    vrm = Vrm.load(file)
+    images = vrm.glb.json_data.get("images", [])
+    replaced = 0
+
+    for i, img in enumerate(images):
+        name = img.get("name", f"texture_{i}")
+        # Try both .png and .jpg
+        for ext in (".png", ".jpg", ".jpeg"):
+            candidate = from_dir / f"{name}{ext}"
+            if candidate.exists():
+                data = candidate.read_bytes()
+                vrm.glb.replace_image(i, data)
+                console.print(f"  [green]{name}[/green] <- {candidate.name} ({len(data):,} bytes)")
+                replaced += 1
+                break
+
+    if replaced == 0:
+        console.print("[yellow]No matching textures found[/yellow]")
+        console.print(f"Expected filenames: {', '.join(img.get('name', f'texture_{i}') + '.png' for i, img in enumerate(images))}")
+        return
+
+    out_path = output or file
+    vrm.save(out_path)
+    console.print(f"\nReplaced {replaced} texture(s), saved to {out_path}")
+
+
+@texture_app.command("list")
+def texture_list(
+    file: Path = typer.Argument(..., help="Path to .vrm file"),
+) -> None:
+    """List all textures in a VRM."""
+    vrm = Vrm.load(file)
+    images = vrm.glb.json_data.get("images", [])
+    materials = vrm.glb.json_data.get("materials", [])
+
+    # Map texture index → material names
+    tex_mats: dict[int, list[str]] = {}
+    for mat in materials:
+        tex_idx = mat.get("pbrMetallicRoughness", {}).get("baseColorTexture", {}).get("index")
+        if tex_idx is not None:
+            tex_mats.setdefault(tex_idx, []).append(mat.get("name", "?"))
+
+    for i, img in enumerate(images):
+        bv = vrm.glb.json_data["bufferViews"][img["bufferView"]]
+        size = bv["byteLength"]
+        name = img.get("name", f"texture_{i}")
+        mats = tex_mats.get(i, [])
+        mat_str = f" -> {', '.join(mats)}" if mats else ""
+        console.print(f"  {i}: [cyan]{name}[/cyan] ({size:,} bytes){mat_str}")
+
+
 # ---- migrate ----
 
 
