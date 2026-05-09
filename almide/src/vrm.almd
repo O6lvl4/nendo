@@ -1,0 +1,163 @@
+module vrm
+
+import json
+import glb
+
+type VrmVersion =
+  | V0
+  | V1
+  | Unknown
+
+fn version_string(v: VrmVersion) -> String =
+  match v {
+    V0 => "0.x",
+    V1 => "1.0",
+    Unknown => "unknown",
+  }
+
+type Vrm = {
+  glb: glb.GlbFile,
+  version: VrmVersion,
+}
+
+fn empty() -> Vrm = {
+  let g = glb.GlbFile { json_data: json.null(), bin_data: bytes.new(0) }
+  Vrm { glb: g, version: Unknown }
+}
+
+effect fn load(path: String) -> Result[Vrm, String] = {
+  let g = match glb.load(path) {
+    ok(g) => g,
+    err(_) => err("failed to load GLB"),
+  }
+  let v = detect_version(g.json_data)
+  ok(Vrm { glb: g, version: v })
+}
+
+effect fn save(vrm: Vrm, path: String) -> Result[Unit, String] =
+  glb.save(vrm.glb, path)
+
+fn detect_version(j: json.Value) -> VrmVersion = {
+  let ext = json.get(j, "extensions")
+  match ext {
+    none => Unknown,
+    some(e) =>
+      if option.is_some(json.get(e, "VRMC_vrm")) then V1
+      else if option.is_some(json.get(e, "VRM")) then V0
+      else Unknown,
+  }
+}
+
+fn extensions(vrm: Vrm) -> Option[json.Value] =
+  json.get(vrm.glb.json_data, "extensions")
+
+fn vrm_root(vrm: Vrm) -> Option[json.Value] =
+  match extensions(vrm) {
+    none => none,
+    some(ext) => match vrm.version {
+      V1 => json.get(ext, "VRMC_vrm"),
+      V0 => json.get(ext, "VRM"),
+      Unknown => none,
+    },
+  }
+
+fn meta(vrm: Vrm) -> Option[json.Value] =
+  match vrm_root(vrm) {
+    some(root) => json.get(root, "meta"),
+    none => none,
+  }
+
+fn title(vrm: Vrm) -> String = {
+  let key = if vrm.version == V1 then "name" else "title"
+  match meta(vrm) {
+    some(m) => option.unwrap_or(json.get_string(m, key), ""),
+    none => "",
+  }
+}
+
+fn author(vrm: Vrm) -> String =
+  match meta(vrm) {
+    some(m) => match vrm.version {
+      V1 => match json.get_array(m, "authors") {
+        some(arr) => {
+          let strs = list.filter_map(arr, json.as_string)
+          list.join(strs, ", ")
+        },
+        none => "",
+      },
+      _ => option.unwrap_or(json.get_string(m, "author"), ""),
+    },
+    none => "",
+  }
+
+fn human_bones(vrm: Vrm) -> List[json.Value] =
+  match vrm_root(vrm) {
+    none => [],
+    some(root) => match json.get(root, "humanoid") {
+      none => [],
+      some(h) => match vrm.version {
+        V1 => match json.get(h, "humanBones") {
+          some(bones) => {
+            let entries = json.keys(bones)
+            list.map(entries, (name) => {
+              let node = match json.get(bones, name) {
+                some(b) => option.unwrap_or(json.get_int(b, "node"), -1),
+                none => -1,
+              }
+              json.object([("bone", json.from_string(name)), ("node", json.from_int(node))])
+            })
+          },
+          none => [],
+        },
+        V0 => option.unwrap_or(json.get_array(h, "humanBones"), []),
+        Unknown => [],
+      },
+    },
+  }
+
+fn expression_count(vrm: Vrm) -> Int =
+  match vrm_root(vrm) {
+    none => 0,
+    some(root) => match vrm.version {
+      V1 => {
+        let expr = option.unwrap_or(json.get(root, "expressions"), json.null())
+        let preset = match json.get(expr, "preset") {
+          some(p) => list.len(json.keys(p)),
+          none => 0,
+        }
+        let custom = match json.get(expr, "custom") {
+          some(c) => list.len(json.keys(c)),
+          none => 0,
+        }
+        preset + custom
+      },
+      V0 => {
+        let bsm = option.unwrap_or(json.get(root, "blendShapeMaster"), json.null())
+        match json.get_array(bsm, "blendShapeGroups") {
+          some(g) => list.len(g),
+          none => 0,
+        }
+      },
+      Unknown => 0,
+    },
+  }
+
+fn count(j: json.Value, key: String) -> Int =
+  match json.get_array(j, key) {
+    some(a) => list.len(a),
+    none => 0,
+  }
+
+fn summary(vrm: Vrm) -> json.Value =
+  json.object([
+    ("version", json.from_string(version_string(vrm.version))),
+    ("title", json.from_string(title(vrm))),
+    ("author", json.from_string(author(vrm))),
+    ("meshes", json.from_int(count(vrm.glb.json_data, "meshes"))),
+    ("nodes", json.from_int(count(vrm.glb.json_data, "nodes"))),
+    ("materials", json.from_int(count(vrm.glb.json_data, "materials"))),
+    ("textures", json.from_int(count(vrm.glb.json_data, "textures"))),
+    ("images", json.from_int(count(vrm.glb.json_data, "images"))),
+    ("human_bones", json.from_int(list.len(human_bones(vrm)))),
+    ("expressions", json.from_int(expression_count(vrm))),
+  ])
