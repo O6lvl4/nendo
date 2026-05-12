@@ -11,21 +11,24 @@ import skin
 // ── Global state (mutable Bytes as pseudo-globals) ──
 // Persists across load/render/set_morph calls.
 
-let g_data = bytes.new(4)          // raw GLB data ref (replaced on load)
 let g_bin_off = bytes.new(4)       // i32: binary chunk offset
 let g_n_prims = bytes.new(4)       // i32: total obsid primitives loaded
-let g_joint_mats = bytes.new(4)    // joint matrices ref (replaced on load)
-let g_gltf_ptr = bytes.new(4)      // json.Value ptr stored as i32
 
 // Per-primitive state: flat array, 20 bytes each:
 //   [obsid_id:i32][vert_count:i32][morph_count:i32][base_verts_ptr:i32][prim_json_ptr:i32]
-let PRIM_STRIDE = 20
+let PRIM_STRIDE = 24
 let MAX_PRIMS = 512
-let g_prim_meta = bytes.new(10240) // 512 * 20
+let g_prim_meta = bytes.new(12288) // 512 * 24
 
-// Morph weights: flat array, max 64 targets * 512 prims = 32768 floats
+// Morph weights: per-prim * per-target float32
 let MAX_MORPHS_PER_PRIM = 64
-let g_morph_weights = bytes.new(131072) // 512 * 64 * 4
+let g_morph_weights = bytes.new(131072)  // 512 * 64 * 4
+// Morph deltas: all delta data in one flat buffer.
+// Offset for (prim, target) stored in g_morph_delta_off as i32 byte offset.
+// -1 = not available. Delta data is 12 bytes (vec3 f32) per vertex.
+let g_morph_delta_off = bytes.new(131072) // 512 * 64 * 4 (offset table)
+let g_morph_data = bytes.new(16777216)    // 16MB max for base verts + delta data
+let g_morph_data_pos = bytes.new(4)       // i32: current write position in g_morph_data
 
 // ── Init ──
 
@@ -74,7 +77,6 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
     }
     if n_meshes == 0 then 0
     else {
-      // Store globals (data ptr stored as i32 via data_ptr)
       bytes.set_i32_le(g_bin_off, 0, bin_off)
 
       let arena = bytes.heap_save()
@@ -131,13 +133,24 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
         let n_prims = list.len(prims)
         var pi = 0
         while pi < n_prims {
-          let cp = bytes.heap_save()
           let prim = list.get_or(prims, pi, json.null())
+
+          // Pre-compute vert_count to allocate persistent base_verts BEFORE arena
+          let attrs = option.unwrap_or(json.get(prim, "attributes"), json.null())
+          let pos_idx = option.unwrap_or(json.get_int(attrs, "POSITION"), -1)
+          let vert_count = if pos_idx >= 0 then accessor.element_count(gltf, pos_idx) else 0
+
+          // Allocate persistent base vertex buffer (survives arena restore)
+          let base_verts = if vert_count > 0 then bytes.new(vert_count * 44) else bytes.new(0)
+
+          let cp = bytes.heap_save()
           match mesh.build_primitive(gltf, data, bin_off, prim) {
             some(m) => {
+              // Copy built vertices to persistent base (before skinning/morph)
+              bytes.copy_from(base_verts, m.vertices, 0, 0, m.vert_count * 44)
+
               // Apply CPU skinning
               if has_skin then {
-                let attrs = option.unwrap_or(json.get(prim, "attributes"), json.null())
                 let j_idx = option.unwrap_or(json.get_int(attrs, "JOINTS_0"), -1)
                 let w_idx = option.unwrap_or(json.get_int(attrs, "WEIGHTS_0"), -1)
                 if j_idx >= 0 and w_idx >= 0 then {
@@ -151,22 +164,6 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
                     none => {},
                   }
                 } else {}
-              } else {}
-
-              // Apply morph targets with default weights
-              if m.morph_count > 0 then {
-                let mesh_val = list.get_or(option.unwrap_or(json.get_array(gltf, "meshes"), []), mesh_id, json.null())
-                let default_weights = option.unwrap_or(json.get_array(mesh_val, "weights"), [])
-                let wbuf = bytes.new(m.morph_count * 4)
-                var wi = 0
-                while wi < m.morph_count {
-                  let w = if wi < list.len(default_weights) then {
-                    option.unwrap_or(json.as_float(list.get_or(default_weights, wi, json.from_float(0.0))), 0.0)
-                  } else 0.0
-                  bytes.set_f32_le(wbuf, wi * 4, w)
-                  wi = wi + 1
-                }
-                mesh.apply_morph(gltf, data, bin_off, prim, m.vertices, m.vert_count, 44, wbuf)
               } else {}
 
               obsid.create_mesh(obsid_id)
@@ -211,12 +208,51 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
                 }
               } else {}
 
-              // Store primitive metadata for dynamic morph
+              // Store base verts in g_morph_data + metadata
+              let morph_pos = bytes.read_i32_le(g_morph_data_pos, 0)
+              if m.morph_count > 0 then {
+                // Copy base vertices (pre-skinning/morph) to persistent buffer
+                bytes.copy_from(g_morph_data, base_verts, morph_pos, 0, m.vert_count * 44)
+              } else {}
+
               if obsid_id < MAX_PRIMS then {
                 let po = obsid_id * PRIM_STRIDE
                 bytes.set_i32_le(g_prim_meta, po, obsid_id)
                 bytes.set_i32_le(g_prim_meta, po + 4, m.vert_count)
                 bytes.set_i32_le(g_prim_meta, po + 8, m.morph_count)
+                bytes.set_i32_le(g_prim_meta, po + 12, mesh_id)
+                bytes.set_i32_le(g_prim_meta, po + 16, pi)
+                bytes.set_i32_le(g_prim_meta, po + 20, morph_pos) // offset in g_morph_data
+                if m.morph_count > 0 then {
+                  bytes.set_i32_le(g_morph_data_pos, 0, morph_pos + m.vert_count * 44)
+                } else {}
+                // Copy morph target deltas into g_morph_data (persistent flat buffer)
+                let targets = option.unwrap_or(json.get_array(prim, "targets"), [])
+                var ti = 0
+                while ti < list.len(targets) and ti < MAX_MORPHS_PER_PRIM {
+                  let target = list.get_or(targets, ti, json.null())
+                  let delta_idx = option.unwrap_or(json.get_int(target, "POSITION"), -1)
+                  if delta_idx >= 0 then {
+                    match accessor.resolve(gltf, delta_idx) {
+                      some(di) => {
+                        let write_pos = bytes.read_i32_le(g_morph_data_pos, 0)
+                        let delta_size = m.vert_count * 12
+                        // Store offset in offset table
+                        let slot = (obsid_id * MAX_MORPHS_PER_PRIM + ti) * 4
+                        bytes.set_i32_le(g_morph_delta_off, slot, write_pos)
+                        // Copy delta data to flat buffer
+                        var dvi = 0
+                        while dvi < m.vert_count {
+                          bytes.copy_from(g_morph_data, data, write_pos + dvi * 12, bin_off + di.base_offset + dvi * di.stride, 12)
+                          dvi = dvi + 1
+                        }
+                        bytes.set_i32_le(g_morph_data_pos, 0, write_pos + delta_size)
+                      },
+                      none => {},
+                    }
+                  } else {}
+                  ti = ti + 1
+                }
               } else {}
 
               obsid_id = obsid_id + 1
@@ -256,6 +292,95 @@ fn get_vrm0_shade_color(gltf: json.Value, mat_idx: Int, idx: Int) -> Float = {
       },
     },
   }
+}
+
+// ── Dynamic Morph Control ──
+
+// Set morph target weight for a primitive.
+// prim_idx: obsid primitive index (0-based)
+// target_idx: morph target index within the primitive
+// weight: blend weight (0.0 - 1.0)
+pub fn set_morph_weight(prim_idx: Int, target_idx: Int, weight: Float) -> Unit = {
+  let n = bytes.read_i32_le(g_n_prims, 0)
+  if prim_idx >= 0 and prim_idx < n and prim_idx < MAX_PRIMS then {
+    let po = prim_idx * PRIM_STRIDE
+    let mc = bytes.read_i32_le(g_prim_meta, po + 8)
+    if target_idx >= 0 and target_idx < mc and target_idx < MAX_MORPHS_PER_PRIM then {
+      let wo = (prim_idx * MAX_MORPHS_PER_PRIM + target_idx) * 4
+      bytes.set_f32_le(g_morph_weights, wo, weight)
+    } else {}
+  } else {}
+}
+
+// Get total number of loaded primitives.
+pub fn get_prim_count() -> Int = bytes.read_i32_le(g_n_prims, 0)
+
+// Get morph target count for a primitive.
+pub fn get_morph_count(prim_idx: Int) -> Int = {
+  if prim_idx >= 0 and prim_idx < MAX_PRIMS then {
+    bytes.read_i32_le(g_prim_meta, prim_idx * PRIM_STRIDE + 8)
+  } else 0
+}
+
+// Rebuild a primitive with current morph weights and re-upload.
+// Uses cached accessor info — no JSON access needed.
+pub effect fn rebuild_prim(prim_idx: Int) -> Unit = {
+  let n = bytes.read_i32_le(g_n_prims, 0)
+  if prim_idx >= 0 and prim_idx < n and prim_idx < MAX_PRIMS then {
+    let po = prim_idx * PRIM_STRIDE
+    let oid = bytes.read_i32_le(g_prim_meta, po)
+    let vc = bytes.read_i32_le(g_prim_meta, po + 4)
+    let mc = bytes.read_i32_le(g_prim_meta, po + 8)
+    // base_verts is stored as data_ptr (raw i32 address of the data section)
+    // We need to access it. Since base_verts was allocated before arena checkpoints,
+    // we can reconstruct by knowing the Bytes header is at (base_ptr - 4).
+    // But simpler: use bytes.copy_from with the raw address.
+    // Actually, base_verts IS a Bytes allocated before cp. Its pointer is stored as data_ptr.
+    // The Bytes header (length) is at data_ptr - 4. We need the Bytes ptr = data_ptr - 4.
+    // But we can't reconstruct a Bytes from an arbitrary address in almide.
+    //
+    // Workaround: store the FULL vertex data in g_morph_data too.
+    // For now, just skip rebuild if no morph targets (base_verts not needed).
+
+    if mc == 0 then {}
+    else {
+      let cp = bytes.heap_save()
+      let base_off = bytes.read_i32_le(g_prim_meta, po + 20)
+
+      // Copy base → working buffer
+      let work = bytes.new(vc * 44)
+      bytes.copy_from(work, g_morph_data, 0, base_off, vc * 44)
+
+      // Apply morph deltas
+      var ti = 0
+      while ti < mc and ti < MAX_MORPHS_PER_PRIM {
+        let w = bytes.read_f32_le(g_morph_weights, (prim_idx * MAX_MORPHS_PER_PRIM + ti) * 4)
+        if w > 0.001 or w < -0.001 then {
+          let slot = (prim_idx * MAX_MORPHS_PER_PRIM + ti) * 4
+          let d_off = bytes.read_i32_le(g_morph_delta_off, slot)
+          if d_off >= 0 then {
+            var vi = 0
+            while vi < vc {
+              let dst = vi * 44
+              let so = d_off + vi * 12
+              let dx = bytes.read_f32_le(g_morph_data, so) * w
+              let dy = bytes.read_f32_le(g_morph_data, so + 4) * w
+              let dz = bytes.read_f32_le(g_morph_data, so + 8) * w
+              bytes.set_f32_le(work, dst, bytes.read_f32_le(work, dst) + dx)
+              bytes.set_f32_le(work, dst + 4, bytes.read_f32_le(work, dst + 4) + dy)
+              bytes.set_f32_le(work, dst + 8, bytes.read_f32_le(work, dst + 8) + dz)
+              vi = vi + 1
+            }
+          } else {}
+        } else {}
+        ti = ti + 1
+      }
+
+      // Re-upload to obsid (indices unchanged, pass 0 for idx)
+      obsid.upload_mesh(oid, bytes.data_ptr(work), vc, 0, 0)
+      bytes.heap_restore(cp)
+    }
+  } else {}
 }
 
 // ── Render ──
