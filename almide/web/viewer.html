@@ -118,9 +118,11 @@
       dv.setInt32(ptr, data.length, true);
       new Uint8Array(memory.buffer, ptr + 4, data.length).set(data);
 
-      // Try inspect first to verify data, then load_vrm_3d for rendering
+      console.log("calling inspect, ptr=", ptr, "len=", data.length);
       const resultPtr = wasmExports.inspect(ptr);
+      console.log("resultPtr=", resultPtr);
       const resultStr = readWasmString(memory, resultPtr);
+      console.log("result:", resultStr);
 
       let result;
       try { result = JSON.parse(resultStr); } catch { result = { ok: false, error: resultStr }; }
