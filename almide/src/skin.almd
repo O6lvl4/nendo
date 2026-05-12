@@ -165,29 +165,19 @@ fn compute_world_transforms(gltf: json.Value) -> Bytes = {
 }
 
 fn compute_node_world(local_mats: Bytes, parents: Bytes, n: Int, idx: Int) -> Bytes = {
-  // Walk up parent chain, collect indices, then multiply top-down
-  var chain: List[Int] = [idx]
-  var cur = idx
+  // Start with this node's local transform, then prepend parent transforms up the chain.
+  // No list allocation — just iterative mat4 multiplication.
+  let result = bytes.new(64)
+  bytes.copy_from(result, local_mats, 0, idx * 64, 64)
+  var cur = bytes.read_i32_le(parents, idx * 4)
   var depth = 0
-  while depth < 64 {
-    let parent = bytes.read_i32_le(parents, cur * 4)
-    if parent < 0 or parent >= n then {
-      depth = 64 // break
-    } else {
-      chain = [parent] + chain
-      cur = parent
-      depth = depth + 1
-    }
-  }
-  // Multiply chain: world = local[chain[0]] * local[chain[1]] * ...
-  var result = mat4_identity()
-  var ci = 0
-  while ci < list.len(chain) {
-    let node_idx = list.get_or(chain, ci, 0)
-    let lm = bytes.new(64)
-    bytes.copy_from(lm, local_mats, 0, node_idx * 64, 64)
-    result = mat4_multiply(result, lm)
-    ci = ci + 1
+  while cur >= 0 and cur < n and depth < 64 {
+    let parent_local = bytes.new(64)
+    bytes.copy_from(parent_local, local_mats, 0, cur * 64, 64)
+    let new_result = mat4_multiply(parent_local, result)
+    bytes.copy_from(result, new_result, 0, 0, 64)
+    cur = bytes.read_i32_le(parents, cur * 4)
+    depth = depth + 1
   }
   result
 }

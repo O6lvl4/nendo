@@ -113,7 +113,7 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
           match mesh.build_primitive(gltf, data, bin_off, prim) {
             some(m) => {
               // Apply CPU skinning if skin data available
-              if false then { // TODO: skinning disabled — joint matrix computation needs debugging
+              if false then { // Skinning disabled — needs three.js Skeleton.update() faithful port
                 let attrs = option.unwrap_or(json.get(prim, "attributes"), json.null())
                 let j_idx = option.unwrap_or(json.get_int(attrs, "JOINTS_0"), -1)
                 let w_idx = option.unwrap_or(json.get_int(attrs, "WEIGHTS_0"), -1)
