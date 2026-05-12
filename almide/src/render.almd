@@ -1,0 +1,67 @@
+// VRM renderer using obsid.
+// Loads GLB, converts mesh to obsid format, uploads and renders.
+
+module render
+
+import json
+import bytes
+import obsid
+import mesh
+
+type GlbData = { json_data: json.Value, bin_data: Bytes }
+
+// Upload meshes from parsed GLB to obsid and set up scene.
+pub effect fn load_from_glb(g: GlbData) -> Result[Int, String] = {
+  let mesh_count = match json.get_array(g.json_data, "meshes") {
+    some(m) => list.len(m),
+    none => 0,
+  }
+
+  guard mesh_count > 0 else err("no meshes in GLB")
+
+  // Upload each mesh
+  var mesh_id = 0
+  while mesh_id < mesh_count {
+    match mesh.from_gltf(g.json_data, g.bin_data, mesh_id) {
+      ok(md) => {
+        obsid.create_mesh(mesh_id)
+        obsid.upload_mesh(mesh_id,
+          bytes.data_ptr(md.vertices), md.vert_count,
+          bytes.data_ptr(md.indices), md.idx_count)
+      },
+      err(_) => {},
+    }
+    mesh_id = mesh_id + 1
+  }
+
+  // Setup camera
+  let aspect = obsid.get_aspect()
+  obsid.orbit_init(0.0, 1.0, 0.0, 0.0, 0.2, 3.0, 0.5, 20.0)
+  obsid.orbit_apply(0.8, aspect, 0.01, 100.0)
+
+  // Lighting
+  obsid.set_dir_light(1.0, 1.0, 1.0, -0.5, -1.0, -0.3)
+  obsid.set_ambient(0.3, 0.3, 0.3)
+
+  ok(mesh_count)
+}
+
+// Re-render frame (call from requestAnimationFrame).
+pub effect fn frame() -> Unit = {
+  let aspect = obsid.get_aspect()
+  obsid.orbit_apply(0.8, aspect, 0.01, 100.0)
+  obsid.render()
+}
+
+// Orbit camera controls (forwarded to obsid).
+pub effect fn on_pointer_down(x: Float, y: Float) -> Unit =
+  obsid.orbit_on_pointer_down(x, y)
+
+pub effect fn on_pointer_up() -> Unit =
+  obsid.orbit_on_pointer_up()
+
+pub effect fn on_pointer_move(x: Float, y: Float) -> Unit =
+  obsid.orbit_on_pointer_move(x, y)
+
+pub effect fn on_wheel(delta_y: Float) -> Unit =
+  obsid.orbit_on_wheel(delta_y)

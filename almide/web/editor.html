@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nendo editor</title>
+<style>
+:root {
+  --bg: #111118; --panel: #1a1a28; --panel2: #222235; --border: #2a2a40;
+  --text: #e8e8f0; --dim: #7878a0; --accent: #00ff99; --accent-dim: rgba(0,255,153,0.15);
+  --accent2: #4cc9f0; --warn: #ff6b6b; --input-bg: #14142a; --hover: #2a2a50; --radius: 6px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: var(--text); background: var(--bg); overflow: hidden; height: 100vh; display: flex; }
+#viewport { flex: 1; position: relative; }
+canvas { display: block; width: 100%; height: 100%; }
+#viewport-overlay { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; }
+.view-btn { padding: 5px 10px; background: rgba(20,20,40,0.8); border: 1px solid var(--border); color: var(--dim); border-radius: var(--radius); cursor: pointer; font-size: 11px; backdrop-filter: blur(8px); }
+.view-btn:hover { color: var(--text); border-color: var(--accent); }
+#panel { width: 380px; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.panel-header { padding: 10px 16px; font-size: 14px; font-weight: 600; border-bottom: 1px solid var(--border); color: var(--accent); display: flex; align-items: center; justify-content: space-between; }
+.panel-header .save-btn { padding: 4px 14px; background: var(--accent); color: #000; border: none; border-radius: var(--radius); cursor: pointer; font-size: 12px; font-weight: 600; }
+.tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--panel2); }
+.tab { flex: 1; padding: 10px 4px; text-align: center; cursor: pointer; border-bottom: 2px solid transparent; color: var(--dim); font-size: 12px; font-weight: 500; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+.tab-content { display: none; flex: 1; overflow-y: auto; }
+.tab-content.active { display: block; }
+.tab-content::-webkit-scrollbar { width: 5px; }
+.tab-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.part-item { display: flex; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--border); cursor: pointer; gap: 10px; }
+.part-item:hover { background: var(--hover); }
+.part-item.selected { background: var(--accent-dim); }
+.part-toggle { width: 18px; height: 18px; border: 1.5px solid var(--dim); border-radius: 3px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; font-size: 12px; color: var(--accent); }
+.part-toggle.on { border-color: var(--accent); background: var(--accent-dim); }
+.part-toggle.on::after { content: "\2713"; }
+.part-name { flex: 1; font-size: 13px; }
+.part-info { font-size: 11px; color: var(--dim); }
+.category { border-bottom: 1px solid var(--border); }
+.category-header { display: flex; align-items: center; padding: 10px 16px; cursor: pointer; user-select: none; gap: 8px; font-weight: 500; font-size: 13px; color: var(--accent2); background: var(--panel2); }
+.category-header:hover { background: var(--hover); }
+.category-arrow { font-size: 10px; color: var(--dim); }
+.category.collapsed .category-arrow { transform: rotate(-90deg); }
+.category.collapsed .category-body { display: none; }
+.slider-row { display: flex; align-items: center; padding: 3px 16px 3px 24px; gap: 8px; }
+.slider-row label { min-width: 110px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); flex-shrink: 0; }
+.slider-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 3px; }
+.slider-row .val { min-width: 30px; text-align: right; font-size: 11px; color: var(--accent); }
+.slider-row.modified label { color: var(--accent); }
+.color-row { display: flex; align-items: center; padding: 6px 16px 6px 24px; gap: 10px; }
+.color-row label { min-width: 80px; font-size: 12px; color: var(--dim); }
+.color-swatch { width: 28px; height: 28px; border-radius: 4px; border: 2px solid var(--border); cursor: pointer; position: relative; overflow: hidden; }
+.color-swatch input[type="color"] { position: absolute; inset: -4px; width: 36px; height: 36px; border: none; cursor: pointer; opacity: 0; }
+.color-hex { font-size: 11px; color: var(--dim); font-family: monospace; }
+.field { display: flex; align-items: center; padding: 5px 16px; gap: 10px; }
+.field label { min-width: 100px; font-size: 12px; color: var(--dim); }
+.field input[type="text"] { flex: 1; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 4px; font-size: 12px; }
+#status { padding: 6px 16px; font-size: 11px; color: var(--dim); border-top: 1px solid var(--border); flex-shrink: 0; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--accent); color: #000; padding: 8px 24px; border-radius: var(--radius); font-size: 13px; font-weight: 600; opacity: 0; transition: all 0.25s; z-index: 100; pointer-events: none; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#drop-prompt { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
+#drop-prompt p { color: var(--dim); font-size: 16px; margin-bottom: 8px; }
+#drop-prompt small { color: var(--dim); font-size: 12px; opacity: 0.6; }
+#drop-prompt.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="viewport">
+  <canvas id="canvas"></canvas>
+  <div id="drop-prompt">
+    <p>Drop a .vrm file to start editing</p>
+    <small>Powered by Almide WASM + three-vrm</small>
+  </div>
+  <div id="viewport-overlay" style="display:none">
+    <button class="view-btn" data-view="full">Full</button>
+    <button class="view-btn" data-view="face">Face</button>
+    <button class="view-btn" data-view="front">Front</button>
+    <button class="view-btn" data-view="side">Side</button>
+    <button class="view-btn" data-view="back">Back</button>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="panel-header">
+    <span>nendo editor</span>
+    <button class="save-btn" id="save-btn">Download VRM</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" data-tab="parts">Parts</div>
+    <div class="tab" data-tab="shape">Shape</div>
+    <div class="tab" data-tab="face">Face</div>
+    <div class="tab" data-tab="material">Material</div>
+    <div class="tab" data-tab="meta">Meta</div>
+  </div>
+  <div id="tab-parts" class="tab-content active"><div id="parts-list"></div></div>
+  <div id="tab-shape" class="tab-content">
+    <div style="padding:8px 16px;border-bottom:1px solid var(--border)">
+      <input type="text" id="shape-search" placeholder="Search..." style="width:100%;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:var(--radius);font-size:12px">
+    </div>
+    <div id="shape-categories"></div>
+  </div>
+  <div id="tab-face" class="tab-content">
+    <div style="padding:8px 16px;border-bottom:1px solid var(--border)">
+      <input type="text" id="face-search" placeholder="Search..." style="width:100%;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:var(--radius);font-size:12px">
+    </div>
+    <div id="face-categories"></div>
+  </div>
+  <div id="tab-material" class="tab-content"><div id="material-list"></div></div>
+  <div id="tab-meta" class="tab-content"><div id="meta-fields" style="padding:10px 0"></div></div>
+  <div id="status">Drop a VRM file to begin</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.3.3/lib/three-vrm.module.min.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import * as VRMModule from '@pixiv/three-vrm';
+const { VRMLoaderPlugin, VRMUtils } = VRMModule;
+
+let vrm = null, gltfData = null, currentFileName = 'model.vrm';
+const clock = new THREE.Clock();
+
+// ---- Three.js setup ----
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x111118);
+const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 100);
+camera.position.set(0, 1.3, -2.5);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 1.0, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+scene.add(new THREE.DirectionalLight(0xffffff, 1.0)).position.set(1, 3, -3);
+scene.add(new THREE.DirectionalLight(0xaabbff, 0.4)).position.set(-2, 1, 2);
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+scene.add(new THREE.GridHelper(10, 20, 0x222240, 0x1a1a30));
+
+function resize() {
+  const vp = document.getElementById('viewport');
+  renderer.setSize(vp.clientWidth, vp.clientHeight);
+  camera.aspect = vp.clientWidth / vp.clientHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2000); }
+
+// ---- Camera views ----
+function moveCameraTo(pos, target) { camera.position.set(...pos); controls.target.set(...target); controls.update(); }
+function getModelCenter() {
+  if (!vrm) return { center: [0,1,0], height: 1.6, headY: 1.5 };
+  vrm.scene.updateMatrixWorld(true);
+  const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+  const head = vrm.humanoid?.getNormalizedBoneNode('head');
+  if (hips && head) {
+    const hw = new THREE.Vector3(); hips.getWorldPosition(hw);
+    const hdw = new THREE.Vector3(); head.getWorldPosition(hdw);
+    return { center: [(hw.x+hdw.x)/2,(hw.y+hdw.y)/2,(hw.z+hdw.z)/2], height: hdw.y-hw.y+0.3, headY: hdw.y+0.15 };
+  }
+  const box = new THREE.Box3().setFromObject(vrm.scene);
+  const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+  return { center: [c.x,c.y,c.z], height: s.y, headY: c.y+s.y*0.35 };
+}
+document.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => {
+  const { center: c, height: h, headY } = getModelCenter();
+  const views = { full: () => moveCameraTo([0,c[1]+h*0.1,h*1.5],c), face: () => moveCameraTo([0,headY,0.55],[0,headY,0]), front: () => moveCameraTo([0,c[1],h*1.2],c), side: () => moveCameraTo([h*1.2,c[1],0],c), back: () => moveCameraTo([0,c[1],-h*1.2],c) };
+  views[btn.dataset.view]?.();
+}));
+
+// ---- Tabs ----
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+}));
+
+// ---- Shape key categorization ----
+const FACE_CATS = { Eyes: /^(eye_|Eye_|eyelid_|eyelash_|highlight_)/i, Mouth: /^(mouth_|A$|I$|U$|E$|O$|bero_)/i, Eyebrows: /^eyebrow_/i, Face: /^(cheek_|jaw_|nose_|face_)/i };
+const BODY_CATS = { Chest: /^(Breasts?_|Nipple_)/i, Body: /^(Waist_|Foot_|Nail_)/i, Shrink: /_(OFF|OFF_[LR])$/, Hair: /^(Bangs?_|Hair_|Ahoge)/i };
+function categorize(name, rules) { for (const [cat, re] of Object.entries(rules)) if (re.test(name)) return cat; return 'Other'; }
+
+// ---- UI builders ----
+function collectMeshes() {
+  const meshes = [];
+  if (!vrm) return meshes;
+  vrm.scene.traverse(obj => {
+    if (obj.isMesh || obj.isSkinnedMesh) {
+      const info = { name: obj.name, object: obj, visible: obj.visible, vertices: obj.geometry?.attributes?.position?.count || 0, shapeKeys: [], materials: [] };
+      if (obj.morphTargetDictionary) {
+        for (const [name, idx] of Object.entries(obj.morphTargetDictionary))
+          info.shapeKeys.push({ name, index: idx, value: obj.morphTargetInfluences?.[idx] || 0 });
+        info.shapeKeys.sort((a, b) => a.name.localeCompare(b.name));
+      }
+      info.materials = (Array.isArray(obj.material) ? obj.material : [obj.material]).filter(Boolean);
+      meshes.push(info);
+    }
+  });
+  return meshes.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function makeSlider(label, initVal, onChange) {
+  const row = document.createElement('div'); row.className = 'slider-row'; row.dataset.label = label.toLowerCase();
+  const lbl = document.createElement('label'); lbl.textContent = label;
+  const slider = document.createElement('input'); Object.assign(slider, { type: 'range', min: '0', max: '100', value: String(Math.round(initVal * 100)) });
+  const val = document.createElement('span'); val.className = 'val'; val.textContent = slider.value;
+  slider.addEventListener('input', () => { onChange(parseInt(slider.value)/100); val.textContent = slider.value; row.classList.toggle('modified', parseInt(slider.value)!==0); });
+  if (initVal > 0) row.classList.add('modified');
+  row.append(lbl, slider, val); return row;
+}
+
+function makeCategory(title, count, buildFn, collapsed = false) {
+  const sec = document.createElement('div'); sec.className = `category${collapsed ? ' collapsed' : ''}`;
+  const hdr = document.createElement('div'); hdr.className = 'category-header';
+  hdr.innerHTML = `<span class="category-arrow">&#9660;</span><span>${title}</span><span style="margin-left:auto;font-size:11px;color:var(--dim)">${count}</span>`;
+  const body = document.createElement('div'); body.className = 'category-body'; buildFn(body);
+  hdr.addEventListener('click', () => sec.classList.toggle('collapsed'));
+  sec.append(hdr, body); return sec;
+}
+
+function makeColorPicker(label, threeColor, onChange) {
+  const row = document.createElement('div'); row.className = 'color-row';
+  const lbl = document.createElement('label'); lbl.textContent = label;
+  const swatch = document.createElement('div'); swatch.className = 'color-swatch';
+  const hex = '#' + threeColor.getHexString(); swatch.style.background = hex;
+  const input = document.createElement('input'); input.type = 'color'; input.value = hex;
+  const hexLabel = document.createElement('span'); hexLabel.className = 'color-hex'; hexLabel.textContent = hex;
+  input.addEventListener('input', () => { swatch.style.background = input.value; hexLabel.textContent = input.value; onChange(new THREE.Color(input.value)); });
+  swatch.appendChild(input); row.append(lbl, swatch, hexLabel); return row;
+}
+
+function buildParts(meshes) {
+  const c = document.getElementById('parts-list'); c.innerHTML = '';
+  for (const mesh of meshes) {
+    const item = document.createElement('div'); item.className = 'part-item';
+    const toggle = document.createElement('div'); toggle.className = `part-toggle ${mesh.visible ? 'on' : ''}`;
+    toggle.addEventListener('click', e => { e.stopPropagation(); mesh.object.visible = !mesh.object.visible; toggle.classList.toggle('on'); });
+    const name = document.createElement('span'); name.className = 'part-name'; name.textContent = mesh.name;
+    const info = document.createElement('span'); info.className = 'part-info';
+    info.textContent = `${mesh.vertices.toLocaleString()}v` + (mesh.shapeKeys.length ? ` / ${mesh.shapeKeys.length}sk` : '');
+    item.append(toggle, name, info); c.appendChild(item);
+    item.addEventListener('click', () => {
+      c.querySelectorAll('.part-item').forEach(p => p.classList.remove('selected'));
+      item.classList.add('selected');
+      c.querySelectorAll('.part-detail').forEach(d => d.remove());
+      if (!mesh.shapeKeys.length) return;
+      const detail = document.createElement('div'); detail.className = 'part-detail';
+      detail.style.cssText = 'background:var(--panel2);border-bottom:1px solid var(--border);padding:6px 0';
+      for (const sk of mesh.shapeKeys) { if (sk.name === 'Basis') continue; detail.appendChild(makeSlider(sk.name, sk.value, v => { mesh.object.morphTargetInfluences[sk.index] = v; })); }
+      item.after(detail);
+    });
+  }
+}
+
+function buildGroupedTab(meshes, containerId, faceRules, bodyRules, isFace) {
+  const c = document.getElementById(containerId); c.innerHTML = '';
+  if (isFace && vrm?.expressionManager) {
+    c.appendChild(makeCategory('VRM Expressions', vrm.expressionManager.expressions.length, body => {
+      for (const expr of vrm.expressionManager.expressions) body.appendChild(makeSlider(expr.expressionName, 0, v => vrm.expressionManager.setValue(expr.expressionName, v)));
+    }));
+  }
+  const grouped = {};
+  for (const mesh of meshes) for (const sk of mesh.shapeKeys) {
+    if (sk.name === 'Basis') continue;
+    const rules = isFace ? faceRules : bodyRules;
+    const cat = categorize(sk.name, rules);
+    if (isFace && cat === 'Other') continue;
+    if (!isFace) { const fc = categorize(sk.name, faceRules); if (fc !== 'Other') continue; }
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push({ ...sk, mesh });
+  }
+  for (const [cat, items] of Object.entries(grouped))
+    c.appendChild(makeCategory(cat, items.length, body => {
+      for (const item of items) body.appendChild(makeSlider(item.name, item.value, v => { item.mesh.object.morphTargetInfluences[item.index] = v; }));
+    }, isFace));
+}
+
+function buildMaterialTab(meshes) {
+  const c = document.getElementById('material-list'); c.innerHTML = '';
+  const seen = new Set();
+  for (const mesh of meshes) for (const mat of mesh.materials) {
+    if (seen.has(mat.uuid)) continue; seen.add(mat.uuid);
+    const sec = document.createElement('div'); sec.className = 'category';
+    const hdr = document.createElement('div'); hdr.className = 'category-header';
+    hdr.innerHTML = `<span class="category-arrow">&#9660;</span> ${mat.name || 'Material'}`;
+    hdr.addEventListener('click', () => sec.classList.toggle('collapsed'));
+    const body = document.createElement('div'); body.className = 'category-body';
+    if (mat.color) body.appendChild(makeColorPicker('Base Color', mat.color, c => mat.color.copy(c)));
+    if (mat.emissive) body.appendChild(makeColorPicker('Emissive', mat.emissive, c => mat.emissive.copy(c)));
+    if (mat.opacity !== undefined) body.appendChild(makeSlider('Opacity', mat.opacity, v => { mat.opacity = v; mat.transparent = v < 1; }));
+    sec.append(hdr, body); c.appendChild(sec);
+  }
+}
+
+function buildMetaTab() {
+  const c = document.getElementById('meta-fields'); c.innerHTML = '';
+  if (!gltfData?.parser?.json) return;
+  const json = gltfData.parser.json;
+  const ext = json.extensions || {};
+  const vrmExt = ext.VRMC_vrm || ext.VRM || {};
+  const meta = vrmExt.meta || {};
+  for (const [key, val] of Object.entries(meta)) {
+    const div = document.createElement('div'); div.className = 'field';
+    const label = document.createElement('label'); label.textContent = key;
+    const input = document.createElement('input'); input.type = 'text'; input.dataset.key = key;
+    input.value = Array.isArray(val) ? val.join(', ') : (val ?? '');
+    div.append(label, input); c.appendChild(div);
+  }
+}
+
+function setupSearch(inputId, containerId) {
+  document.getElementById(inputId)?.addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    const c = document.getElementById(containerId);
+    c.querySelectorAll('.slider-row').forEach(r => r.style.display = r.dataset.label?.includes(q) ? '' : 'none');
+    c.querySelectorAll('.category').forEach(cat => {
+      const vis = cat.querySelectorAll('.slider-row:not([style*="display: none"])').length;
+      cat.style.display = vis ? '' : 'none';
+      if (q && vis) cat.classList.remove('collapsed');
+    });
+  });
+}
+
+// ---- Load VRM from file ----
+const loader = new GLTFLoader();
+loader.register(parser => new VRMLoaderPlugin(parser));
+
+function loadVRMFromArrayBuffer(buffer, fileName) {
+  currentFileName = fileName;
+  setStatus('Loading VRM...');
+  const blob = new Blob([buffer], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  loader.load(url, loaded => {
+    gltfData = loaded;
+    if (vrm) { VRMUtils.deepDispose(vrm.scene); scene.remove(vrm.scene); }
+    vrm = loaded.userData.vrm;
+    VRMUtils.rotateVRM0(vrm);
+    scene.add(vrm.scene);
+
+    const { center: c, height: h } = getModelCenter();
+    controls.target.set(...c);
+    camera.position.set(c[0], c[1] + h * 0.1, c[2] + h * 1.5);
+    controls.update();
+    URL.revokeObjectURL(url);
+
+    document.getElementById('drop-prompt').classList.add('hidden');
+    document.getElementById('viewport-overlay').style.display = 'flex';
+
+    const meshes = collectMeshes();
+    buildParts(meshes);
+    buildGroupedTab(meshes, 'shape-categories', FACE_CATS, BODY_CATS, false);
+    buildGroupedTab(meshes, 'face-categories', FACE_CATS, BODY_CATS, true);
+    buildMaterialTab(meshes);
+    buildMetaTab();
+    setupSearch('shape-search', 'shape-categories');
+    setupSearch('face-search', 'face-categories');
+
+    const skCount = meshes.reduce((a, m) => a + m.shapeKeys.length, 0);
+    setStatus(`${fileName} | ${meshes.length} meshes | ${skCount} shape keys`);
+    showToast(`Loaded ${fileName}`);
+  }, p => { if (p.total) setStatus(`Loading... ${Math.round(p.loaded / p.total * 100)}%`); },
+  err => setStatus(`Error: ${err.message}`));
+}
+
+// ---- Download (save) ----
+document.getElementById('save-btn').addEventListener('click', () => {
+  if (!vrm) { showToast('No VRM loaded'); return; }
+  showToast('Exporting...');
+  const exporter = new GLTFExporter();
+  exporter.parse(vrm.scene, result => {
+    const blob = result instanceof ArrayBuffer ? new Blob([result], { type: 'model/gltf-binary' }) : new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = currentFileName.replace(/\.vrm$/, '_edited.vrm');
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('Downloaded');
+  }, err => showToast('Export failed: ' + err), { binary: true });
+});
+
+// ---- Drag & Drop ----
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = [...(e.dataTransfer?.files || [])].find(f => /\.(vrm|glb)$/i.test(f.name));
+  if (!file) { showToast('Drop a .vrm or .glb file'); return; }
+  file.arrayBuffer().then(buf => loadVRMFromArrayBuffer(buf, file.name));
+});
+
+// ---- Render loop ----
+function animate() {
+  requestAnimationFrame(animate);
+  if (vrm) vrm.update(clock.getDelta());
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>

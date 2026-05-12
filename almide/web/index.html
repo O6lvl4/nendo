@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nendo — VRM Inspector</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
+  .container { max-width: 720px; margin: 0 auto; padding: 2rem 1rem; }
+  h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff; }
+  h1 span { color: #7c7c9a; font-weight: 400; }
+  .drop-zone { border: 2px dashed #3a3a5c; border-radius: 12px; padding: 3rem 2rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; margin: 1.5rem 0; }
+  .drop-zone:hover, .drop-zone.dragover { border-color: #6c63ff; background: rgba(108, 99, 255, 0.05); }
+  .drop-zone p { color: #7c7c9a; font-size: 0.95rem; }
+  .drop-zone input { display: none; }
+  #status { font-size: 0.85rem; color: #7c7c9a; margin-bottom: 1rem; }
+  #result { display: none; }
+  .card { background: #16213e; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+  .card h2 { font-size: 1rem; color: #6c63ff; margin-bottom: 0.75rem; }
+  .row { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid #1a1a3e; }
+  .row:last-child { border-bottom: none; }
+  .label { color: #7c7c9a; }
+  .value { color: #fff; font-weight: 500; }
+  .error { color: #ff6b6b; }
+  .valid { color: #51cf66; }
+  .invalid { color: #ff6b6b; }
+  pre { background: #0d1117; border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.8rem; max-height: 400px; overflow-y: auto; color: #c9d1d9; }
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .tab { padding: 0.4rem 1rem; border-radius: 6px; background: #16213e; color: #7c7c9a; cursor: pointer; border: none; font-size: 0.85rem; }
+  .tab.active { background: #6c63ff; color: #fff; }
+  .size { font-size: 0.8rem; color: #7c7c9a; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>nendo <span>VRM Inspector</span></h1>
+  <p id="status">Loading WASM...</p>
+
+  <div class="drop-zone" id="dropZone">
+    <p>Drop a .vrm / .glb file here or click to browse</p>
+    <input type="file" id="fileInput" accept=".vrm,.glb">
+  </div>
+
+  <div id="result">
+    <div class="tabs">
+      <button class="tab active" data-tab="summary">Summary</button>
+      <button class="tab" data-tab="validate">Validate</button>
+      <button class="tab" data-tab="json">JSON Tree</button>
+    </div>
+
+    <div id="tab-summary" class="card"></div>
+    <div id="tab-validate" class="card" style="display:none"></div>
+    <div id="tab-json" style="display:none"><pre id="jsonPre"></pre></div>
+  </div>
+</div>
+
+<script>
+// Almide WASM string layout: [len:i32][utf8_bytes...]
+// Almide WASM bytes layout: [len:i32][bytes...]
+
+let wasm;
+let memory;
+
+function readString(ptr) {
+  const buf = wasm.exports.memory.buffer;
+  const len = new DataView(buf).getInt32(ptr, true);
+  const bytes = new Uint8Array(buf, ptr + 4, len);
+  return new TextDecoder().decode(bytes);
+}
+
+function writeBytes(data) {
+  // Allocate [len:i32][data...] in WASM memory
+  const totalLen = 4 + data.byteLength;
+  const ptr = wasm.exports.__alloc(totalLen);
+  // After alloc, memory may have grown — get fresh buffer reference
+  const buf = wasm.exports.memory.buffer;
+  new DataView(buf).setInt32(ptr, data.byteLength, true);
+  new Uint8Array(buf).set(new Uint8Array(data), ptr + 4);
+  return ptr;
+}
+
+// Minimal WASI stubs for browser — nendo's core logic doesn't use I/O
+// but the WASM runtime always links these symbols.
+const wasiStubs = {
+  wasi_snapshot_preview1: {
+    fd_write: () => 0,
+    clock_time_get: (id, precision, out) => { return 0; },
+    proc_exit: (code) => { throw new Error(`proc_exit(${code})`); },
+    random_get: (buf, len) => {
+      const mem = wasm ? wasm.exports.memory : memory;
+      if (mem) {
+        const bytes = new Uint8Array(mem.buffer, buf, len);
+        crypto.getRandomValues(bytes);
+      }
+      return 0;
+    },
+    path_open: () => -1,
+    fd_read: () => -1,
+    fd_close: () => 0,
+    fd_seek: () => -1,
+    fd_filestat_get: () => -1,
+    path_filestat_get: () => -1,
+    path_create_directory: () => -1,
+    path_rename: () => -1,
+    path_unlink_file: () => -1,
+    path_remove_directory: () => -1,
+    fd_prestat_get: () => -1,
+    fd_prestat_dir_name: () => -1,
+    fd_readdir: () => -1,
+  },
+};
+
+async function init() {
+  const resp = await fetch('nendo2.wasm');
+  const bytes = await resp.arrayBuffer();
+  // Two-phase init: compile first to get memory, then instantiate with stubs
+  const module = await WebAssembly.compile(bytes);
+  const instance = await WebAssembly.instantiate(module, wasiStubs);
+  wasm = instance;
+  memory = wasm.exports.memory;
+  document.getElementById('status').textContent = 'Ready — drop a VRM file';
+}
+
+function callWasm(fn, data) {
+  const heapMark = wasm.exports.__heap_save();
+  const ptr = writeBytes(data);
+  const resultPtr = fn(ptr);
+  const result = readString(resultPtr);
+  wasm.exports.__heap_restore(heapMark);
+  return result;
+}
+
+function processFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const data = reader.result;
+    const fileName = file.name;
+    const fileSize = (data.byteLength / 1024).toFixed(1);
+
+    // Summary
+    const summary = JSON.parse(callWasm(wasm.exports.inspect, data));
+    const summaryEl = document.getElementById('tab-summary');
+    if (summary.error) {
+      summaryEl.innerHTML = `<h2>Error</h2><p class="error">${summary.error}</p>`;
+    } else {
+      summaryEl.innerHTML = `
+        <h2>${fileName}</h2>
+        <div class="size">${fileSize} KB</div>
+        ${Object.entries(summary).map(([k, v]) =>
+          `<div class="row"><span class="label">${k}</span><span class="value">${v}</span></div>`
+        ).join('')}
+      `;
+    }
+
+    // Validate
+    const validation = JSON.parse(callWasm(wasm.exports.validate, data));
+    const valEl = document.getElementById('tab-validate');
+    const validClass = validation.valid ? 'valid' : 'invalid';
+    const validText = validation.valid ? 'Valid' : 'Invalid';
+    valEl.innerHTML = `
+      <h2>Validation</h2>
+      <div class="row"><span class="label">Status</span><span class="${validClass}">${validText}</span></div>
+      ${Object.entries(validation).filter(([k]) => k !== 'valid').map(([k, v]) =>
+        `<div class="row"><span class="label">${k}</span><span class="value">${v}</span></div>`
+      ).join('')}
+    `;
+
+    // JSON tree — parse GLB in JS to avoid triple-copying 10MB+ files through WASM
+    try {
+      const view = new DataView(data);
+      const chunkLen = view.getUint32(12, true);
+      const chunkType = view.getUint32(16, true);
+      if (chunkType === 0x4E4F534A) { // JSON chunk
+        const jsonBytes = new Uint8Array(data, 20, chunkLen);
+        const jsonStr = new TextDecoder().decode(jsonBytes);
+        document.getElementById('jsonPre').textContent = JSON.stringify(JSON.parse(jsonStr), null, 2);
+      } else {
+        document.getElementById('jsonPre').textContent = '(no JSON chunk found)';
+      }
+    } catch (e) {
+      document.getElementById('jsonPre').textContent = 'Error: ' + e.message;
+    }
+
+    document.getElementById('result').style.display = 'block';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Drop zone
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+});
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    const target = tab.dataset.tab;
+    document.getElementById('tab-summary').style.display = target === 'summary' ? 'block' : 'none';
+    document.getElementById('tab-validate').style.display = target === 'validate' ? 'block' : 'none';
+    document.getElementById('tab-json').style.display = target === 'json' ? 'block' : 'none';
+  });
+});
+
+init().catch(e => {
+  console.error('WASM init failed:', e);
+  document.getElementById('status').textContent = 'WASM init failed: ' + e.message;
+});
+</script>
+</body>
+</html>
