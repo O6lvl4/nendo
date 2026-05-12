@@ -8,9 +8,10 @@ import json
 import mesh
 
 effect fn main() -> Unit = {
-  obsid.orbit_init(0.0, 1.0, 0.0, 0.0, 0.3, 3.0, 0.3, 20.0)
-  obsid.set_dir_light(1.0, 1.0, 1.0, -0.5, -1.0, -0.3)
-  obsid.set_ambient(0.4, 0.4, 0.4)
+  obsid.orbit_init(0.0, 0.85, 0.0, 0.0, 0.2, 2.5, 0.3, 20.0)
+  obsid.set_dir_light(0.6, 0.6, 0.62, 0.1, -0.7, -0.7)
+  obsid.set_ambient(0.75, 0.75, 0.78)
+  // TODO: obsid.create_program for almide-defined GLSL (codegen fix needed)
 }
 
 pub effect fn load_vrm_data(data: Bytes) -> Int = {
@@ -47,6 +48,12 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
     if n_meshes == 0 then 0
     else {
       let arena = bytes.heap_save()
+
+      // Detect VRM 0.x (all materials are MToon)
+      let is_vrm0 = match json.get(gltf, "extensions") {
+        some(ext) => option.is_some(json.get(ext, "VRM")),
+        none => false,
+      }
 
       // ── Upload images as textures ──
       let images = option.unwrap_or(json.get_array(gltf, "images"), [])
@@ -85,27 +92,43 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
             some(m) => {
               obsid.create_mesh(obsid_id)
               obsid.upload_mesh(obsid_id, bytes.data_ptr(m.vertices), m.vert_count, bytes.data_ptr(m.indices), m.idx_count)
-              // Bind texture: prim.material → material.baseColorTexture.index → texture.source
+              // Bind texture + detect MToon toon shading
               let mat_i = option.unwrap_or(json.get_int(prim, "material"), -1)
               if mat_i >= 0 then {
                 match list.get(materials, mat_i) {
-                  some(mat) => match json.get(mat, "pbrMetallicRoughness") {
-                    some(pbr) => match json.get(pbr, "baseColorTexture") {
-                      some(bct) => {
-                        let tex_idx = option.unwrap_or(json.get_int(bct, "index"), -1)
-                        if tex_idx >= 0 then {
-                          match list.get(textures, tex_idx) {
-                            some(tex) => {
-                              let src = option.unwrap_or(json.get_int(tex, "source"), -1)
-                              if src >= 0 then obsid.set_mesh_texture(obsid_id, src) else {}
-                            },
-                            none => {},
-                          }
-                        } else {}
+                  some(mat) => {
+                    // Texture binding
+                    match json.get(mat, "pbrMetallicRoughness") {
+                      some(pbr) => match json.get(pbr, "baseColorTexture") {
+                        some(bct) => {
+                          let tex_idx = option.unwrap_or(json.get_int(bct, "index"), -1)
+                          if tex_idx >= 0 then {
+                            match list.get(textures, tex_idx) {
+                              some(tex) => {
+                                let src = option.unwrap_or(json.get_int(tex, "source"), -1)
+                                if src >= 0 then obsid.set_mesh_texture(obsid_id, src) else {}
+                              },
+                              none => {},
+                            }
+                          } else {}
+                        },
+                        none => {},
                       },
                       none => {},
-                    },
-                    none => {},
+                    }
+                    // MToon detection: enable toon mode for all VRM meshes
+                    // VRM 1.0: material.extensions.VRMC_materials_mtoon
+                    // VRM 0.x: always MToon (all materials)
+                    let is_mtoon = match json.get(mat, "extensions") {
+                      some(ext) => option.is_some(json.get(ext, "VRMC_materials_mtoon")),
+                      none => is_vrm0,
+                    }
+                    if is_mtoon then {
+                      let shade_r = get_vrm0_shade_color(gltf, mat_i, 0)
+                      let shade_g = get_vrm0_shade_color(gltf, mat_i, 1)
+                      let shade_b = get_vrm0_shade_color(gltf, mat_i, 2)
+                      obsid.set_mesh_toon(obsid_id, shade_r, shade_g, shade_b, 0.15)
+                    } else {}
                   },
                   none => {},
                 }
@@ -121,6 +144,29 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
       }
       obsid_id
     }
+  }
+}
+
+// VRM 0.x shade color: extensions.VRM.materialProperties[i].vectorProperties._ShadeColor
+fn get_vrm0_shade_color(gltf: json.Value, mat_idx: Int, idx: Int) -> Float = {
+  match json.get(gltf, "extensions") {
+    none => 0.6,
+    some(ext) => match json.get(ext, "VRM") {
+      none => 0.6,
+      some(vrm) => match json.get_array(vrm, "materialProperties") {
+        none => 0.6,
+        some(props) => match list.get(props, mat_idx) {
+          none => 0.6,
+          some(prop) => match json.get(prop, "vectorProperties") {
+            none => 0.6,
+            some(vp) => match json.get_array(vp, "_ShadeColor") {
+              none => 0.6,
+              some(arr) => option.unwrap_or(json.as_float(list.get_or(arr, idx, json.from_float(0.6))), 0.6),
+            },
+          },
+        },
+      },
+    },
   }
 }
 
