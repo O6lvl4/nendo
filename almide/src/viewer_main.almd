@@ -11,7 +11,10 @@ effect fn main() -> Unit = {
   obsid.orbit_init(0.0, 0.85, 0.0, 0.0, 0.2, 2.5, 0.3, 20.0)
   obsid.set_dir_light(0.6, 0.6, 0.62, 0.1, -0.7, -0.7)
   obsid.set_ambient(0.75, 0.75, 0.78)
-  // TODO: obsid.create_program for almide-defined GLSL (codegen fix needed)
+  // MToon fragment shader — defined in almide
+  let frag = "precision highp float; varying vec3 v_norm, v_color; varying highp vec3 v_wpos; varying vec2 v_uv; varying highp float v_dist; uniform highp vec3 u_eye; uniform vec3 u_sun_color, u_sun_dir, u_ambient, u_fog_color; uniform vec2 u_fog_range; uniform float u_alpha; uniform vec3 u_shade_color; uniform float u_shade_threshold; uniform sampler2D u_tex; uniform int u_has_tex; vec3 srgbToLinear(vec3 c) { return pow(c, vec3(2.2)); } vec3 linearToSrgb(vec3 c) { return pow(c, vec3(1.0/2.2)); } void main() { vec3 n = normalize(v_norm); vec3 baseColor = srgbToLinear(v_color); if (u_has_tex == 1) { baseColor *= srgbToLinear(texture2D(u_tex, v_uv).rgb); } vec3 sunDir = normalize(u_sun_dir); float NdotL = max(dot(n, sunDir), 0.0); float toon = smoothstep(u_shade_threshold - 0.08, u_shade_threshold + 0.08, NdotL); vec3 litColor = srgbToLinear(u_ambient) + srgbToLinear(u_sun_color); vec3 shadColor = srgbToLinear(u_shade_color); vec3 lighting = mix(shadColor, litColor, toon); vec3 viewDir = normalize(u_eye - v_wpos); float rim = 1.0 - max(dot(n, viewDir), 0.0); rim = smoothstep(0.6, 1.0, rim) * 0.15; vec3 color = baseColor * lighting + vec3(rim); float fog = clamp((u_fog_range.y - v_dist) / (u_fog_range.y - u_fog_range.x), 0.0, 1.0); color = mix(srgbToLinear(u_fog_color), color, fog); gl_FragColor = vec4(linearToSrgb(color), u_alpha); }"
+  let fb = bytes.from_string(frag)
+  obsid.create_shader_program(1, bytes.data_ptr(fb), bytes.len(fb))
 }
 
 pub effect fn load_vrm_data(data: Bytes) -> Int = {
@@ -128,6 +131,7 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
                       let shade_g = get_vrm0_shade_color(gltf, mat_i, 1)
                       let shade_b = get_vrm0_shade_color(gltf, mat_i, 2)
                       obsid.set_mesh_toon(obsid_id, shade_r, shade_g, shade_b, 0.15)
+                      obsid.set_mesh_shader(obsid_id, 1)
                     } else {}
                   },
                   none => {},
