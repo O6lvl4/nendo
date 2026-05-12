@@ -103,39 +103,26 @@
       const data = new Uint8Array(arrayBuffer);
       const memory = wasmMemory;
 
-      // Write file data into WASM memory.
-      // almide WASM Bytes layout: [i32 len][bytes...]
-      // Grow memory to fit, then write at the end of current memory.
-      const dataSize = 4 + data.length;
-      const currentSize = memory.buffer.byteLength;
-      const extraPages = Math.ceil(dataSize / 65536) + 1;
-      memory.grow(extraPages);
-      const basePtr = currentSize; // Write at old end of memory
+      // Allocate Bytes in WASM via __alloc: [i32 len][data...]
+      const totalSize = 4 + data.length;
+      const ptr = wasmExports.__alloc(totalSize);
       const dv = new DataView(memory.buffer);
-      dv.setInt32(basePtr, data.length, true); // len
-      new Uint8Array(memory.buffer, basePtr + 4, data.length).set(data); // bytes
+      dv.setInt32(ptr, data.length, true);
+      new Uint8Array(memory.buffer, ptr + 4, data.length).set(data);
 
-      // Call nendo WASM: load_vrm_3d(ptr) → json string ptr
-      // almide passes Bytes as i32 pointer to [len][data...]
-      // First try inspect (lightweight, no obsid calls)
-      const inspectFn = wasmExports.inspect;
-      if (!inspectFn) {
-        infoEl.textContent = "No inspect export";
-        return;
-      }
-      const resultPtr = inspectFn(basePtr);
+      // Try inspect first to verify data, then load_vrm_3d for rendering
+      const resultPtr = wasmExports.inspect(ptr);
       const resultStr = readWasmString(memory, resultPtr);
 
       let result;
       try { result = JSON.parse(resultStr); } catch { result = { ok: false, error: resultStr }; }
 
-      if (result.ok) {
-        infoEl.textContent = `nendo — ${result.meshes} mesh(es) loaded`;
-        dropzone.classList.add("hidden");
-        statsEl.classList.remove("hidden");
-        startRenderLoop();
-      } else {
+      if (result.error) {
         infoEl.textContent = `Error: ${result.error}`;
+      } else {
+        infoEl.textContent = `nendo — ${result.title || '(untitled)'} | v${result.version} | ${result.meshes} meshes, ${result.nodes} nodes`;
+        dropzone.classList.add("hidden");
+        // TODO: call load_vrm_3d + startRenderLoop once obsid rendering works
       }
     }
 
