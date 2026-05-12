@@ -81,22 +81,22 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
         img_id = img_id + 1
       }
 
-      // ── Compute skinning (joint matrices per skin) ──
-      let nodes_arr = option.unwrap_or(json.get_array(gltf, "nodes"), [])
-      // Find skin index for each mesh: nodes[i].mesh → nodes[i].skin
-      // Pre-compute joint matrices for each skin (typically 1 skin in VRM)
+      // ── Compute skinning joint matrices ──
       let skins_arr = option.unwrap_or(json.get_array(gltf, "skins"), [])
       let n_skins = list.len(skins_arr)
-      // Compute joint matrices for skin 0 (VRM typically has one skin).
-      // Use arena to free intermediate allocations (node hierarchy, local transforms).
+      // Count joints to pre-allocate result BEFORE arena checkpoint
+      let n_joints = if n_skins > 0 then {
+        let sk = list.get_or(skins_arr, 0, json.null())
+        list.len(option.unwrap_or(json.get_array(sk, "joints"), []))
+      } else 0
+      let joint_mats = bytes.new(n_joints * 64)  // allocated BEFORE checkpoint
       let skin_cp = bytes.heap_save()
-      let joint_mats_tmp = if n_skins > 0 then skin.compute_joint_matrices(gltf, data, bin_off, 0) else bytes.new(0)
-      let jm_len = bytes.len(joint_mats_tmp)
-      // Copy result out of arena before restoring
-      let joint_mats = bytes.new(jm_len)
-      bytes.copy_from(joint_mats, joint_mats_tmp, 0, 0, jm_len)
-      bytes.heap_restore(skin_cp)
-      let has_skin = n_skins > 0 and jm_len > 0
+      if n_joints > 0 then {
+        let tmp = skin.compute_joint_matrices(gltf, data, bin_off, 0)
+        bytes.copy_from(joint_mats, tmp, 0, 0, int.min(bytes.len(tmp), n_joints * 64))
+      } else {}
+      bytes.heap_restore(skin_cp)  // frees only compute intermediates, not joint_mats
+      let has_skin = n_joints > 0
 
       // ── Upload meshes ──
       let textures = option.unwrap_or(json.get_array(gltf, "textures"), [])
@@ -113,7 +113,7 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
           match mesh.build_primitive(gltf, data, bin_off, prim) {
             some(m) => {
               // Apply CPU skinning if skin data available
-              if false then { // Skinning disabled — needs three.js Skeleton.update() faithful port
+              if has_skin then { // Identity test: should look same as without skinning
                 let attrs = option.unwrap_or(json.get(prim, "attributes"), json.null())
                 let j_idx = option.unwrap_or(json.get_int(attrs, "JOINTS_0"), -1)
                 let w_idx = option.unwrap_or(json.get_int(attrs, "WEIGHTS_0"), -1)

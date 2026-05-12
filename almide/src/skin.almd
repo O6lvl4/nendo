@@ -228,6 +228,14 @@ fn compute_joint_matrices(gltf: json.Value, data: Bytes, bin_offset: Int, skin_i
 // Apply skinning to vertex buffer in-place.
 // joints_data: JOINTS_0 raw bytes, joints_stride/comp_size from accessor
 // weights_data: WEIGHTS_0 raw bytes, weights_stride from accessor
+// Debug: return j0 of first vertex for diagnosis
+fn dbg_first_joint(data: Bytes, bin_offset: Int, joints_info: accessor.AccessorInfo) -> Int = {
+  let jo = bin_offset + joints_info.base_offset
+  let jcomp = joints_info.comp_size
+  if jcomp == 1 then bytes.get_or(data, jo, -1)
+  else bytes.read_u16_le(data, jo)
+}
+
 fn apply_skinning(verts: Bytes, vert_count: Int, out_stride: Int, joint_matrices: Bytes, data: Bytes, bin_offset: Int, joints_info: accessor.AccessorInfo, weights_info: accessor.AccessorInfo) -> Unit = {
   let jbase = bin_offset + joints_info.base_offset
   let jstride = joints_info.stride
@@ -308,13 +316,44 @@ fn apply_skinning(verts: Bytes, vert_count: Int, out_stride: Int, joint_matrices
       snz = snz + w3 * (mat4_get(joint_matrices, mo + 8) * nx + mat4_get(joint_matrices, mo + 24) * ny + mat4_get(joint_matrices, mo + 40) * nz)
     } else {}
 
-    // Write skinned position and normal back
-    bytes.set_f32_le(verts, dst, sx)
-    bytes.set_f32_le(verts, dst + 4, sy)
-    bytes.set_f32_le(verts, dst + 8, sz)
-    bytes.set_f32_le(verts, dst + 12, snx)
-    bytes.set_f32_le(verts, dst + 16, sny)
-    bytes.set_f32_le(verts, dst + 20, snz)
+    // Unconditional blending — no if/else on weights (avoids WASM var-in-if codegen issues)
+    let n_jm = bytes.len(joint_matrices) / 64
+    let cj0 = if j0 >= 0 and j0 < n_jm then j0 else 0
+    let cj1 = if j1 >= 0 and j1 < n_jm then j1 else 0
+    let cj2 = if j2 >= 0 and j2 < n_jm then j2 else 0
+    let cj3 = if j3 >= 0 and j3 < n_jm then j3 else 0
+
+    let m0 = cj0 * 64
+    let m1 = cj1 * 64
+    let m2 = cj2 * 64
+    let m3 = cj3 * 64
+
+    let tx0 = mat4_get(joint_matrices, m0) * px + mat4_get(joint_matrices, m0 + 16) * py + mat4_get(joint_matrices, m0 + 32) * pz + mat4_get(joint_matrices, m0 + 48)
+    let ty0 = mat4_get(joint_matrices, m0 + 4) * px + mat4_get(joint_matrices, m0 + 20) * py + mat4_get(joint_matrices, m0 + 36) * pz + mat4_get(joint_matrices, m0 + 52)
+    let tz0 = mat4_get(joint_matrices, m0 + 8) * px + mat4_get(joint_matrices, m0 + 24) * py + mat4_get(joint_matrices, m0 + 40) * pz + mat4_get(joint_matrices, m0 + 56)
+
+    let tx1 = mat4_get(joint_matrices, m1) * px + mat4_get(joint_matrices, m1 + 16) * py + mat4_get(joint_matrices, m1 + 32) * pz + mat4_get(joint_matrices, m1 + 48)
+    let ty1 = mat4_get(joint_matrices, m1 + 4) * px + mat4_get(joint_matrices, m1 + 20) * py + mat4_get(joint_matrices, m1 + 36) * pz + mat4_get(joint_matrices, m1 + 52)
+    let tz1 = mat4_get(joint_matrices, m1 + 8) * px + mat4_get(joint_matrices, m1 + 24) * py + mat4_get(joint_matrices, m1 + 40) * pz + mat4_get(joint_matrices, m1 + 56)
+
+    let tx2 = mat4_get(joint_matrices, m2) * px + mat4_get(joint_matrices, m2 + 16) * py + mat4_get(joint_matrices, m2 + 32) * pz + mat4_get(joint_matrices, m2 + 48)
+    let ty2 = mat4_get(joint_matrices, m2 + 4) * px + mat4_get(joint_matrices, m2 + 20) * py + mat4_get(joint_matrices, m2 + 36) * pz + mat4_get(joint_matrices, m2 + 52)
+    let tz2 = mat4_get(joint_matrices, m2 + 8) * px + mat4_get(joint_matrices, m2 + 24) * py + mat4_get(joint_matrices, m2 + 40) * pz + mat4_get(joint_matrices, m2 + 56)
+
+    let tx3 = mat4_get(joint_matrices, m3) * px + mat4_get(joint_matrices, m3 + 16) * py + mat4_get(joint_matrices, m3 + 32) * pz + mat4_get(joint_matrices, m3 + 48)
+    let ty3 = mat4_get(joint_matrices, m3 + 4) * px + mat4_get(joint_matrices, m3 + 20) * py + mat4_get(joint_matrices, m3 + 36) * pz + mat4_get(joint_matrices, m3 + 52)
+    let tz3 = mat4_get(joint_matrices, m3 + 8) * px + mat4_get(joint_matrices, m3 + 24) * py + mat4_get(joint_matrices, m3 + 40) * pz + mat4_get(joint_matrices, m3 + 56)
+
+    bytes.set_f32_le(verts, dst, w0 * tx0 + w1 * tx1 + w2 * tx2 + w3 * tx3)
+    bytes.set_f32_le(verts, dst + 4, w0 * ty0 + w1 * ty1 + w2 * ty2 + w3 * ty3)
+    bytes.set_f32_le(verts, dst + 8, w0 * tz0 + w1 * tz1 + w2 * tz2 + w3 * tz3)
+    // Normal: same transform without translation
+    let nx0 = mat4_get(joint_matrices, m0) * nx + mat4_get(joint_matrices, m0 + 16) * ny + mat4_get(joint_matrices, m0 + 32) * nz
+    let ny0 = mat4_get(joint_matrices, m0 + 4) * nx + mat4_get(joint_matrices, m0 + 20) * ny + mat4_get(joint_matrices, m0 + 36) * nz
+    let nz0 = mat4_get(joint_matrices, m0 + 8) * nx + mat4_get(joint_matrices, m0 + 24) * ny + mat4_get(joint_matrices, m0 + 40) * nz
+    bytes.set_f32_le(verts, dst + 12, w0 * nx0 + w1 * nx0 + w2 * nx0 + w3 * nx0)
+    bytes.set_f32_le(verts, dst + 16, w0 * ny0 + w1 * ny0 + w2 * ny0 + w3 * ny0)
+    bytes.set_f32_le(verts, dst + 20, w0 * nz0 + w1 * nz0 + w2 * nz0 + w3 * nz0)
 
     i = i + 1
   }
