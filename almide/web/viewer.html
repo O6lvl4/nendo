@@ -90,23 +90,19 @@
       obsidReady = true;
     }
 
-    // If Obsid already loaded, grab refs immediately
-    if (Obsid._instance) {
-      wasmExports = Obsid._instance.exports;
-      wasmMemory = Obsid._memory || wasmExports?.memory;
-      obsidReady = true;
-    }
+    // Load WASM immediately on page load
+    initObsid().catch(e => console.warn("init:", e.message));
 
     // ── VRM Loading ──
 
     async function loadVRM(arrayBuffer) {
-      try {
-        await initObsid();
-      } catch(e) {
-        infoEl.textContent = `Init error: ${e.message}`;
-        return;
+      // Wait for WASM if not ready yet
+      if (!obsidReady) {
+        try { await initObsid(); } catch(e) {
+          infoEl.textContent = `Init error: ${e.message}`;
+          return;
+        }
       }
-
       if (!wasmExports) {
         infoEl.textContent = "WASM not loaded";
         return;
