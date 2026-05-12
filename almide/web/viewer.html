@@ -117,12 +117,13 @@
 
       // Call nendo WASM: load_vrm_3d(ptr) → json string ptr
       // almide passes Bytes as i32 pointer to [len][data...]
-      const loadFn = wasmExports.load_vrm_3d;
-      if (!loadFn) {
-        infoEl.textContent = "No load_vrm_3d export";
+      // First try inspect (lightweight, no obsid calls)
+      const inspectFn = wasmExports.inspect;
+      if (!inspectFn) {
+        infoEl.textContent = "No inspect export";
         return;
       }
-      const resultPtr = loadFn(basePtr);
+      const resultPtr = inspectFn(basePtr);
       const resultStr = readWasmString(memory, resultPtr);
 
       let result;
