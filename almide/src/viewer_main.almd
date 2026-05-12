@@ -3,37 +3,96 @@
 import obsid
 import bytes
 
+import json
+import mesh
+
 effect fn main() -> Unit = {
-  // Create a colored triangle
-  obsid.create_mesh(0)
-  let verts = bytes.new(0)
-  // v0: pos(0,0,0) norm(0,0,1) color(1,0,0) uv(0,0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0)
-  bytes.append_f32_le(verts, 1.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
-  // v1: pos(1,0,0) color(0,1,0)
-  bytes.append_f32_le(verts, 1.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0); bytes.append_f32_le(verts, 0.0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
-  // v2: pos(0.5,1,0) color(0,0,1)
-  bytes.append_f32_le(verts, 0.5); bytes.append_f32_le(verts, 1.0); bytes.append_f32_le(verts, 0.0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0)
-  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
+  // Test triangle (mesh 99)
+  obsid.create_mesh(99)
+  let tv = bytes.new(0)
+  // v0
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0)
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 1.0)
+  bytes.append_f32_le(tv, 1.0); bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0)
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0)
+  // v1
+  bytes.append_f32_le(tv, 1.0); bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0)
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 1.0)
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 1.0); bytes.append_f32_le(tv, 0.0)
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0)
+  // v2
+  bytes.append_f32_le(tv, 0.5); bytes.append_f32_le(tv, 1.0); bytes.append_f32_le(tv, 0.0)
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 1.0)
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 1.0)
+  bytes.append_f32_le(tv, 0.0); bytes.append_f32_le(tv, 0.0)
+  let ti = bytes.new(0)
+  bytes.append_u16_le(ti, 0); bytes.append_u16_le(ti, 1); bytes.append_u16_le(ti, 2)
+  obsid.upload_mesh(99, bytes.data_ptr(tv), 3, bytes.data_ptr(ti), 3)
 
-  let idx = bytes.new(0)
-  bytes.append_u16_le(idx, 0); bytes.append_u16_le(idx, 1); bytes.append_u16_le(idx, 2)
-
-  obsid.upload_mesh(0, bytes.data_ptr(verts), 3, bytes.data_ptr(idx), 3)
-
-  // Camera looking at origin
-  obsid.orbit_init(0.5, 0.5, 0.0, 0.0, 0.3, 3.0, 0.5, 20.0)
-
-  // Lighting
+  obsid.orbit_init(0.5, 0.5, 0.0, 0.0, 0.3, 3.0, 0.3, 20.0)
   obsid.set_dir_light(1.0, 1.0, 1.0, -0.5, -1.0, -0.3)
   obsid.set_ambient(0.4, 0.4, 0.4)
+}
+
+pub effect fn load_vrm_data(data: Bytes) -> Int = {
+  let glb = glb_parse(data)
+  if option.is_none(glb) then 0
+  else {
+  let g = option.unwrap_or(glb, GlbData { json_data: json.null(), bin_data: bytes.new(0), mesh_count: 0 })
+  if g.mesh_count == 0 then 0
+  else {
+    var loaded = 0
+    var mesh_id = 0
+    let meshes_arr = option.unwrap_or(json.get_array(g.json_data, "meshes"), [])
+    while mesh_id < list.len(meshes_arr) {
+      let md: Result[mesh.MeshData, String] = mesh.from_gltf(g.json_data, g.bin_data, mesh_id)
+      if result.is_ok(md) then {
+        let m: mesh.MeshData = result.unwrap_or(md, mesh.MeshData { vertices: bytes.new(0), indices: bytes.new(0), vert_count: 0, idx_count: 0 })
+        obsid.create_mesh(mesh_id)
+        obsid.upload_mesh(mesh_id, bytes.data_ptr(m.vertices), m.vert_count, bytes.data_ptr(m.indices), m.idx_count)
+        loaded = loaded + 1
+      } else {}
+      mesh_id = mesh_id + 1
+    }
+    loaded
+  }
+  }
+}
+
+type GlbData = { json_data: json.Value, bin_data: Bytes, mesh_count: Int }
+
+fn glb_parse(data: Bytes) -> Option[GlbData] = {
+  if bytes.len(data) < 12 then none
+  else if bytes.read_u32_le(data, 0) != 0x46546C67 then none
+  else {
+  let total_length = bytes.read_u32_le(data, 8)
+  var offset = 12
+  var json_val = json.null()
+  var bin_bytes: Bytes = bytes.new(0)
+
+  while offset + 8 <= int.min(total_length, bytes.len(data)) {
+    let chunk_len = bytes.read_u32_le(data, offset)
+    let chunk_type = bytes.read_u32_le(data, offset + 4)
+    offset = offset + 8
+    let end = int.min(offset + chunk_len, bytes.len(data))
+    if chunk_type == 0x4E4F534A then {
+      let json_str = bytes.to_string_lossy(bytes.slice(data, offset, end))
+      match json.parse(json_str) {
+        ok(v) => { json_val = v },
+        err(_) => {},
+      }
+    } else if chunk_type == 0x004E4942 then {
+      bin_bytes = bytes.slice(data, offset, end)
+    } else {}
+    offset = end
+  }
+
+  let mc = match json.get_array(json_val, "meshes") {
+    some(m) => list.len(m),
+    none => 0,
+  }
+  some(GlbData { json_data: json_val, bin_data: bin_bytes, mesh_count: mc })
+  }
 }
 
 pub effect fn render_frame(t: Float) -> Unit = {
