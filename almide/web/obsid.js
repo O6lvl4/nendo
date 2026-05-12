@@ -444,6 +444,10 @@ const Obsid = {
 
     // ── WASM Imports ──────────────────────────────────
     const imports = {
+      // Stub for canvas module (imported by obsid.canvas but not used by nendo)
+      canvas: new Proxy({}, { get: () => () => 0 }),
+      // Stub for webgl module (imported by obsid.webgl but not used directly)
+      webgl: new Proxy({}, { get: () => () => 0 }),
       obsid: {
         set_state(s,v){ state[N(s)]=N(v); },
         get_state(s){ return B(state[N(s)]??0); },
