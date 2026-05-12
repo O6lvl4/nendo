@@ -14,6 +14,43 @@ type MeshData = {
   indices: Bytes,
   vert_count: Int,
   idx_count: Int,
+  morph_count: Int,    // number of morph targets
+}
+
+// Apply morph targets to vertex buffer in-place.
+// prim: the primitive JSON (has "targets" array)
+// weights: Bytes of morph_count × float32 LE
+fn apply_morph(gltf_json: json.Value, bin: Bytes, bin_offset: Int, prim: json.Value, verts: Bytes, vert_count: Int, out_stride: Int, weights: Bytes) -> Unit = {
+  let targets = option.unwrap_or(json.get_array(prim, "targets"), [])
+  var ti = 0
+  while ti < list.len(targets) {
+    let w = bytes.read_f32_le(weights, ti * 4)
+    if w > 0.001 or w < -0.001 then {
+      let target = list.get_or(targets, ti, json.null())
+      let pos_delta_idx = option.unwrap_or(json.get_int(target, "POSITION"), -1)
+      if pos_delta_idx >= 0 then {
+        match accessor.resolve(gltf_json, pos_delta_idx) {
+          some(di) => {
+            var vi = 0
+            while vi < vert_count {
+              let dst = vi * out_stride
+              let src = bin_offset + di.base_offset + vi * di.stride
+              // Add weighted delta to position
+              let dx = bytes.read_f32_le(bin, src) * w
+              let dy = bytes.read_f32_le(bin, src + 4) * w
+              let dz = bytes.read_f32_le(bin, src + 8) * w
+              bytes.set_f32_le(verts, dst, bytes.read_f32_le(verts, dst) + dx)
+              bytes.set_f32_le(verts, dst + 4, bytes.read_f32_le(verts, dst + 4) + dy)
+              bytes.set_f32_le(verts, dst + 8, bytes.read_f32_le(verts, dst + 8) + dz)
+              vi = vi + 1
+            }
+          },
+          none => {},
+        }
+      } else {}
+    } else {}
+    ti = ti + 1
+  }
 }
 
 // Returns the primitives list for a mesh (caller iterates with build_primitive).
@@ -105,7 +142,8 @@ fn build_primitive(gltf_json: json.Value, bin: Bytes, bin_offset: Int, prim: jso
     none => {},
   }
 
-  some(MeshData { vertices: verts, indices: idx_data, vert_count: vert_count, idx_count: idx_count })
+  let morph_count = list.len(option.unwrap_or(json.get_array(prim, "targets"), []))
+  some(MeshData { vertices: verts, indices: idx_data, vert_count: vert_count, idx_count: idx_count, morph_count: morph_count })
   }
   }
 }

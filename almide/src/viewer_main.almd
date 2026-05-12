@@ -129,6 +129,21 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
                   }
                 } else {}
               } else {}
+              // Apply morph targets with default weights from mesh
+              if m.morph_count > 0 then {
+                let mesh_val = list.get_or(option.unwrap_or(json.get_array(gltf, "meshes"), []), mesh_id, json.null())
+                let default_weights = option.unwrap_or(json.get_array(mesh_val, "weights"), [])
+                let wbuf = bytes.new(m.morph_count * 4)
+                var wi = 0
+                while wi < m.morph_count {
+                  let w = if wi < list.len(default_weights) then {
+                    option.unwrap_or(json.as_float(list.get_or(default_weights, wi, json.from_float(0.0))), 0.0)
+                  } else 0.0
+                  bytes.set_f32_le(wbuf, wi * 4, w)
+                  wi = wi + 1
+                }
+                mesh.apply_morph(gltf, data, bin_off, prim, m.vertices, m.vert_count, 44, wbuf)
+              } else {}
               obsid.create_mesh(obsid_id)
               obsid.upload_mesh(obsid_id, bytes.data_ptr(m.vertices), m.vert_count, bytes.data_ptr(m.indices), m.idx_count)
               // Bind texture + detect MToon toon shading
