@@ -118,7 +118,19 @@
       dv.setInt32(ptr, data.length, true);
       new Uint8Array(memory.buffer, ptr + 4, data.length).set(data);
 
-      const resultPtr = wasmExports.inspect(ptr);
+      // Try 3D rendering first, fallback to inspect
+      const fn3d = wasmExports.load_vrm_3d;
+      let resultPtr;
+      try {
+        resultPtr = fn3d ? fn3d(ptr) : wasmExports.inspect(ptr);
+      } catch(e) {
+        console.warn("load_vrm_3d failed, falling back to inspect:", e.message);
+        // Re-alloc since memory may have been corrupted
+        const ptr2 = wasmExports.__alloc(4 + data.length);
+        new DataView(memory.buffer).setInt32(ptr2, data.length, true);
+        new Uint8Array(memory.buffer, ptr2 + 4, data.length).set(data);
+        resultPtr = wasmExports.inspect(ptr2);
+      }
       const resultStr = readWasmString(memory, resultPtr);
 
       let result;
@@ -126,10 +138,21 @@
 
       if (result.error) {
         infoEl.textContent = `Error: ${result.error}`;
+      } else if (result.ok !== undefined) {
+        // load_vrm_3d result
+        if (result.ok) {
+          infoEl.textContent = `nendo — ${result.meshes} mesh(es) loaded`;
+          dropzone.classList.add("hidden");
+          canvas.classList.remove("hidden");
+          statsEl.classList.remove("hidden");
+          startRenderLoop();
+        } else {
+          infoEl.textContent = `Render error: ${result.error}`;
+        }
       } else {
+        // inspect result
         infoEl.textContent = `nendo — ${result.title || '(untitled)'} | v${result.version} | ${result.meshes} meshes, ${result.nodes} nodes`;
         dropzone.classList.add("hidden");
-        // TODO: call load_vrm_3d + startRenderLoop once obsid rendering works
       }
     }
 

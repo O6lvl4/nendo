@@ -59,6 +59,9 @@ fn from_gltf(gltf_json: json.Value, bin: Bytes, mesh_idx: Int) -> Result[MeshDat
     bytes.append_f32_le(verts, list.get_or(base_color, 0, 0.8))
     bytes.append_f32_le(verts, list.get_or(base_color, 1, 0.8))
     bytes.append_f32_le(verts, list.get_or(base_color, 2, 0.8))
+    // UV (dummy — obsid expects 11 floats per vertex)
+    bytes.append_f32_le(verts, 0.0)
+    bytes.append_f32_le(verts, 0.0)
     i = i + 1
   }
 
