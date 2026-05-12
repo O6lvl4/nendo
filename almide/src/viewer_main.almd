@@ -376,8 +376,8 @@ pub effect fn rebuild_prim(prim_idx: Int) -> Unit = {
         ti = ti + 1
       }
 
-      // Re-upload to obsid (indices unchanged, pass 0 for idx)
-      obsid.upload_mesh(oid, bytes.data_ptr(work), vc, 0, 0)
+      // Re-upload vertices only (indices unchanged)
+      obsid.update_mesh_verts(oid, bytes.data_ptr(work), vc)
       bytes.heap_restore(cp)
     }
   } else {}
