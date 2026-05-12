@@ -105,13 +105,12 @@
 
       // Write file data into WASM memory.
       // almide WASM Bytes layout: [i32 len][bytes...]
-      // We write at a high offset to avoid stomping the heap.
-      const basePtr = 1024 * 1024; // 1MB offset (safe for most programs)
-      const needed = basePtr + 4 + data.length;
-      const pages = Math.ceil(needed / 65536);
-      if (memory.buffer.byteLength < needed) {
-        memory.grow(pages - memory.buffer.byteLength / 65536 + 1);
-      }
+      // Grow memory to fit, then write at the end of current memory.
+      const dataSize = 4 + data.length;
+      const currentSize = memory.buffer.byteLength;
+      const extraPages = Math.ceil(dataSize / 65536) + 1;
+      memory.grow(extraPages);
+      const basePtr = currentSize; // Write at old end of memory
       const dv = new DataView(memory.buffer);
       dv.setInt32(basePtr, data.length, true); // len
       new Uint8Array(memory.buffer, basePtr + 4, data.length).set(data); // bytes
