@@ -19,25 +19,15 @@ type MeshData = {
 // Convert the first primitive of a glTF mesh to obsid vertex data.
 fn from_gltf(gltf_json: json.Value, bin: Bytes, mesh_idx: Int) -> Result[MeshData, String] = {
   let meshes = option.unwrap_or(json.get_array(gltf_json, "meshes"), [])
-  let mesh = match list.get(meshes, mesh_idx) {
-    some(m) => m,
-    none => err("mesh index out of range"),
-  }
-  let primitives = option.unwrap_or(json.get_array(mesh, "primitives"), [])
-  let prim = match list.first(primitives) {
-    some(p) => p,
-    none => err("no primitives"),
-  }
-  let attrs = match json.get(prim, "attributes") {
-    some(a) => a,
-    none => err("no attributes"),
-  }
-
-  // Read POSITION
-  let pos_idx = match json.get_int(attrs, "POSITION") {
-    some(i) => i,
-    none => err("no POSITION attribute"),
-  }
+  if list.len(meshes) <= mesh_idx then err("mesh index out of range")
+  else {
+  let mesh_val = list.get_or(meshes, mesh_idx, json.null())
+  let primitives = option.unwrap_or(json.get_array(mesh_val, "primitives"), [])
+  if list.is_empty(primitives) then err("no primitives")
+  else {
+  let prim = list.get_or(primitives, 0, json.null())
+  let attrs = option.unwrap_or(json.get(prim, "attributes"), json.null())
+  let pos_idx = option.unwrap_or(json.get_int(attrs, "POSITION"), 0)
   let positions = accessor.read_float_array(gltf_json, bin, pos_idx)
 
   // Read NORMAL (optional — generate flat normals if missing)
@@ -93,6 +83,8 @@ fn from_gltf(gltf_json: json.Value, bin: Bytes, mesh_idx: Int) -> Result[MeshDat
     vert_count: vert_count,
     idx_count: idx_count,
   })
+  } // else (primitives)
+  } // else (meshes)
 }
 
 fn generate_flat_normals(count: Int) -> List[Float] = {

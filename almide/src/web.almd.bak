@@ -1,0 +1,210 @@
+// WASM entry point for browser usage.
+// Self-contained: includes GLB parse + VRM logic inline.
+// No fs/process imports — pure computation only.
+
+module web
+
+import json
+import bytes
+import render
+
+// ── GLB Parser (inline, no I/O) ────────────────────────────────
+
+let GLB_MAGIC = 0x46546C67
+let CHUNK_JSON = 0x4E4F534A
+let CHUNK_BIN = 0x004E4942
+
+type GlbFile = {
+  json_data: json.Value,
+  bin_data: Bytes,
+}
+
+fn glb_parse(data: Bytes) -> Result[GlbFile, String] = {
+  guard bytes.len(data) >= 12 else err("too small")
+  let magic = bytes.read_u32_le(data, 0)
+  guard magic == GLB_MAGIC else err("not GLB")
+  let total_length = bytes.read_u32_le(data, 8)
+
+  var offset = 12
+  var json_val: Option[json.Value] = none
+  var bin_bytes: Bytes = bytes.new(0)
+
+  while offset + 8 <= int.min(total_length, bytes.len(data)) {
+    let chunk_len = bytes.read_u32_le(data, offset)
+    let chunk_type = bytes.read_u32_le(data, offset + 4)
+    offset = offset + 8
+    let end = int.min(offset + chunk_len, bytes.len(data))
+
+    if chunk_type == CHUNK_JSON then {
+      let chunk_slice = bytes.slice(data, offset, end)
+      // Debug: check raw bytes before string conversion
+      let b0 = bytes.get_or(chunk_slice, 0, -1)
+      let b1 = bytes.get_or(chunk_slice, 1, -1)
+      let b2 = bytes.get_or(chunk_slice, 2, -1)
+      let b3 = bytes.get_or(chunk_slice, 3, -1)
+      let json_str = bytes.to_string_lossy(chunk_slice)
+      let first10 = string.slice(json_str, 0, 10)
+      match json.parse(json_str) {
+        ok(v) => { json_val = some(v) },
+        err(e) => { json_val = some(json.object([("__parse_error", json.from_string(e)), ("__chunk_len", json.from_int(chunk_len)), ("__str_len", json.from_int(string.len(json_str))), ("__bytes", json.from_string(int.to_string(b0) + "," + int.to_string(b1) + "," + int.to_string(b2) + "," + int.to_string(b3))), ("__first10", json.from_string(first10))])) },
+      }
+    } else if chunk_type == CHUNK_BIN then {
+      bin_bytes = bytes.slice(data, offset, end)
+    } else {}
+
+    offset = end
+  }
+
+  match json_val {
+    some(j) => ok(GlbFile { json_data: j, bin_data: bin_bytes }),
+    none => err("no JSON chunk found after scanning " + int.to_string(offset - 12) + " bytes, total_length=" + int.to_string(bytes.read_u32_le(data, 8))),
+  }
+}
+
+// ── VRM Detection ──────────────────────────────────────────────
+
+type VrmVersion =
+  | V0
+  | V1
+  | VUnknown
+
+fn detect_version(j: json.Value) -> VrmVersion = {
+  let ext = json.get(j, "extensions")
+  match ext {
+    none => VUnknown,
+    some(e) =>
+      if option.is_some(json.get(e, "VRMC_vrm")) then V1
+      else if option.is_some(json.get(e, "VRM")) then V0
+      else VUnknown,
+  }
+}
+
+fn version_string(v: VrmVersion) -> String =
+  match v { V0 => "0.x", V1 => "1.0", VUnknown => "unknown" }
+
+fn vrm_root(j: json.Value, v: VrmVersion) -> Option[json.Value] =
+  match json.get(j, "extensions") {
+    none => none,
+    some(ext) => match v {
+      V1 => json.get(ext, "VRMC_vrm"),
+      V0 => json.get(ext, "VRM"),
+      VUnknown => none,
+    },
+  }
+
+fn count(j: json.Value, key: String) -> Int =
+  match json.get_array(j, key) { some(a) => list.len(a), none => 0 }
+
+fn vrm_title(j: json.Value, v: VrmVersion) -> String =
+  match vrm_root(j, v) {
+    none => "",
+    some(root) => {
+      let key = if v == V1 then "name" else "title"
+      match json.get(root, "meta") {
+        some(m) => option.unwrap_or(json.get_string(m, key), ""),
+        none => "",
+      }
+    },
+  }
+
+fn vrm_author(j: json.Value, v: VrmVersion) -> String =
+  match vrm_root(j, v) {
+    none => "",
+    some(root) => match json.get(root, "meta") {
+      none => "",
+      some(m) => match v {
+        V1 => match json.get_array(m, "authors") {
+          some(arr) => list.join(list.filter_map(arr, json.as_string), ", "),
+          none => "",
+        },
+        _ => option.unwrap_or(json.get_string(m, "author"), ""),
+      },
+    },
+  }
+
+// ── Public API (exported to WASM) ──────────────────────────────
+
+pub fn inspect(data: Bytes) -> String = {
+  match glb_parse(data) {
+    err(e) => json.stringify(json.object([("error", json.from_string(e))])),
+    ok(g) => {
+      let v = detect_version(g.json_data)
+      json.stringify(json.object([
+        ("version", json.from_string(version_string(v))),
+        ("title", json.from_string(vrm_title(g.json_data, v))),
+        ("author", json.from_string(vrm_author(g.json_data, v))),
+        ("meshes", json.from_int(count(g.json_data, "meshes"))),
+        ("nodes", json.from_int(count(g.json_data, "nodes"))),
+        ("materials", json.from_int(count(g.json_data, "materials"))),
+        ("textures", json.from_int(count(g.json_data, "textures"))),
+        ("images", json.from_int(count(g.json_data, "images"))),
+      ]))
+    },
+  }
+}
+
+pub fn get_json(data: Bytes) -> String = {
+  match glb_parse(data) {
+    err(e) => "{\"error\":\"" + e + "\"}",
+    ok(g) => json.stringify(g.json_data),
+  }
+}
+
+pub fn validate(data: Bytes) -> String = {
+  match glb_parse(data) {
+    err(e) => json.stringify(json.object([("valid", json.from_bool(false)), ("error", json.from_string(e))])),
+    ok(g) => {
+      let v = detect_version(g.json_data)
+      json.stringify(json.object([
+        ("valid", json.from_bool(count(g.json_data, "meshes") > 0 and count(g.json_data, "nodes") > 0)),
+        ("version", json.from_string(version_string(v))),
+      ]))
+    },
+  }
+}
+
+// ── 3D Rendering API (exported to WASM) ──────────────────────
+
+pub effect fn load_vrm_3d(data: Bytes) -> String = {
+  match glb_parse(data) {
+    err(e) => json.stringify(json.object([("ok", json.from_bool(false)), ("error", json.from_string(e))])),
+    ok(g) => match render.load_from_glb(render.GlbData { json_data: g.json_data, bin_data: g.bin_data }) {
+      ok(count) => json.stringify(json.object([("ok", json.from_bool(true)), ("meshes", json.from_int(count))])),
+      err(e) => json.stringify(json.object([("ok", json.from_bool(false)), ("error", json.from_string(e))])),
+    },
+  }
+}
+
+pub effect fn render_frame() -> Unit = render.frame()
+
+pub effect fn on_pointer_down(x: Float, y: Float) -> Unit = render.on_pointer_down(x, y)
+pub effect fn on_pointer_up() -> Unit = render.on_pointer_up()
+pub effect fn on_pointer_move(x: Float, y: Float) -> Unit = render.on_pointer_move(x, y)
+pub effect fn on_wheel(delta_y: Float) -> Unit = render.on_wheel(delta_y)
+
+// ── Tests ──────────────────────────────────────────────────────
+
+test "inspect empty returns error" {
+  let result = inspect(bytes.from_list([0, 0, 0]))
+  assert(string.contains(result, "error"))
+}
+
+test "inspect valid GLB" {
+  let json_str = "{}"
+  let jb = bytes.from_string(json_str)
+  let jlen = bytes.len(jb)
+  let total = 12 + 8 + jlen
+  let data = bytes.new(0)
+  bytes.append_u32_le(data, 0x46546C67)
+  bytes.append_u32_le(data, 2)
+  bytes.append_u32_le(data, total)
+  bytes.append_u32_le(data, jlen)
+  bytes.append_u32_le(data, 0x4E4F534A)
+  var i = 0
+  while i < bytes.len(jb) {
+    bytes.push(data, bytes.get_or(jb, i, 0))
+    i = i + 1
+  }
+  let result = inspect(data)
+  assert(string.contains(result, "version"))
+}
