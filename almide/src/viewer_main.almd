@@ -6,6 +6,8 @@ import obsid
 import bytes
 import json
 import mesh
+import accessor
+import skin
 
 effect fn main() -> Unit = {
   obsid.orbit_init(0.0, 0.85, 0.0, 0.0, 0.2, 2.5, 0.3, 20.0)
@@ -79,6 +81,23 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
         img_id = img_id + 1
       }
 
+      // ── Compute skinning (joint matrices per skin) ──
+      let nodes_arr = option.unwrap_or(json.get_array(gltf, "nodes"), [])
+      // Find skin index for each mesh: nodes[i].mesh → nodes[i].skin
+      // Pre-compute joint matrices for each skin (typically 1 skin in VRM)
+      let skins_arr = option.unwrap_or(json.get_array(gltf, "skins"), [])
+      let n_skins = list.len(skins_arr)
+      // Compute joint matrices for skin 0 (VRM typically has one skin).
+      // Use arena to free intermediate allocations (node hierarchy, local transforms).
+      let skin_cp = bytes.heap_save()
+      let joint_mats_tmp = if n_skins > 0 then skin.compute_joint_matrices(gltf, data, bin_off, 0) else bytes.new(0)
+      let jm_len = bytes.len(joint_mats_tmp)
+      // Copy result out of arena before restoring
+      let joint_mats = bytes.new(jm_len)
+      bytes.copy_from(joint_mats, joint_mats_tmp, 0, 0, jm_len)
+      bytes.heap_restore(skin_cp)
+      let has_skin = n_skins > 0 and jm_len > 0
+
       // ── Upload meshes ──
       let textures = option.unwrap_or(json.get_array(gltf, "textures"), [])
       let materials = option.unwrap_or(json.get_array(gltf, "materials"), [])
@@ -93,6 +112,23 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
           let prim = list.get_or(prims, pi, json.null())
           match mesh.build_primitive(gltf, data, bin_off, prim) {
             some(m) => {
+              // Apply CPU skinning if skin data available
+              if false then { // TODO: skinning disabled — joint matrix computation needs debugging
+                let attrs = option.unwrap_or(json.get(prim, "attributes"), json.null())
+                let j_idx = option.unwrap_or(json.get_int(attrs, "JOINTS_0"), -1)
+                let w_idx = option.unwrap_or(json.get_int(attrs, "WEIGHTS_0"), -1)
+                if j_idx >= 0 and w_idx >= 0 then {
+                  match accessor.resolve(gltf, j_idx) {
+                    some(ji) => match accessor.resolve(gltf, w_idx) {
+                      some(wi) => {
+                        skin.apply_skinning(m.vertices, m.vert_count, 44, joint_mats, data, bin_off, ji, wi)
+                      },
+                      none => {},
+                    },
+                    none => {},
+                  }
+                } else {}
+              } else {}
               obsid.create_mesh(obsid_id)
               obsid.upload_mesh(obsid_id, bytes.data_ptr(m.vertices), m.vert_count, bytes.data_ptr(m.indices), m.idx_count)
               // Bind texture + detect MToon toon shading

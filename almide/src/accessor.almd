@@ -32,7 +32,10 @@ fn resolve(gltf_json: json.Value, accessor_idx: Int) -> Option[AccessorInfo] = {
       let components = match acc_type {
         "SCALAR" => 1, "VEC2" => 2, "VEC3" => 3, "VEC4" => 4, "MAT4" => 16, _ => 1,
       }
-      let comp_size = if comp_type == 5123 then 2 else 4  // 5123=UNSIGNED_SHORT, 5126=FLOAT
+      // 5120=BYTE(1), 5121=UNSIGNED_BYTE(1), 5122=SHORT(2), 5123=UNSIGNED_SHORT(2), 5125=UNSIGNED_INT(4), 5126=FLOAT(4)
+      let comp_size = if comp_type == 5120 or comp_type == 5121 then 1
+        else if comp_type == 5122 or comp_type == 5123 then 2
+        else 4
 
       match list.get(buffer_views, bv_idx) {
         none => none,
