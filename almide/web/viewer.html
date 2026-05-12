@@ -70,17 +70,29 @@
 
     async function initObsid() {
       if (obsidReady) return;
+
+      // Check if Obsid already loaded WASM (auto-load from obsid.js)
+      if (Obsid._instance) {
+        wasmExports = Obsid._instance.exports;
+        wasmMemory = Obsid._memory || wasmExports?.memory;
+        obsidReady = true;
+        return;
+      }
+
       const dpr = window.devicePixelRatio || 1;
       canvas.width = window.innerWidth * dpr;
       canvas.height = window.innerHeight * dpr;
       canvas.classList.remove("hidden");
 
-      // Obsid.load handles WebGL init + WASM imports + instantiation
       await Obsid.load("nendo.wasm", "canvas", "high");
-
-      // After load, Obsid stores the instance internally.
-      // We access exports via Obsid's stored reference.
       wasmExports = Obsid._instance?.exports;
+      wasmMemory = Obsid._memory || wasmExports?.memory;
+      obsidReady = true;
+    }
+
+    // If Obsid already loaded, grab refs immediately
+    if (Obsid._instance) {
+      wasmExports = Obsid._instance.exports;
       wasmMemory = Obsid._memory || wasmExports?.memory;
       obsidReady = true;
     }
@@ -173,27 +185,28 @@
       }, { passive: false });
     }
 
-    // ── Drag & Drop ──
+    // ── Drag & Drop (registered immediately) ──
 
-    document.addEventListener("dragover", e => {
+    document.body.addEventListener("dragover", e => { e.preventDefault(); e.stopPropagation(); });
+    document.body.addEventListener("drop", async e => {
       e.preventDefault();
-      dropzone.classList.add("active");
-    });
-    document.addEventListener("dragleave", e => {
-      if (e.relatedTarget === null) dropzone.classList.remove("active");
-    });
-    document.addEventListener("drop", async e => {
-      e.preventDefault();
-      dropzone.classList.remove("active");
+      e.stopPropagation();
+      console.log("drop:", e.dataTransfer?.files[0]?.name);
       const file = e.dataTransfer?.files[0];
-      if (file) loadVRM(await file.arrayBuffer());
+      if (file) {
+        try { await loadVRM(await file.arrayBuffer()); }
+        catch(err) { console.error("loadVRM error:", err); infoEl.textContent = "Error: " + err.message; }
+      }
     });
 
     // Click to select
     dropLabel.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", async () => {
       const file = fileInput.files[0];
-      if (file) loadVRM(await file.arrayBuffer());
+      if (file) {
+        try { await loadVRM(await file.arrayBuffer()); }
+        catch(err) { console.error("loadVRM error:", err); infoEl.textContent = "Error: " + err.message; }
+      }
     });
 
     // Resize
