@@ -1,90 +1,88 @@
-// glTF accessor/bufferView reader.
-// Reads typed arrays (Float32, UInt16) from GLB binary chunk.
+// glTF accessor — zero-copy from GLB binary to output Bytes.
+// No intermediate List[Float] — copies directly byte-by-byte.
 
 module accessor
 
 import json
 import bytes
 
-// Read a Float32 array from a glTF accessor.
-// Returns list of Float values.
-fn read_float_array(gltf_json: json.Value, bin: Bytes, accessor_idx: Int) -> List[Float] = {
+// Info about a glTF accessor (resolved from JSON).
+type AccessorInfo = {
+  base_offset: Int,   // byte offset into GLB binary
+  count: Int,         // number of elements
+  components: Int,    // floats per element (VEC3=3, VEC2=2, SCALAR=1)
+  comp_size: Int,     // bytes per component (4 for float32, 2 for uint16)
+  stride: Int,        // byte stride between elements (0 = tightly packed)
+}
+
+// Resolve accessor info from glTF JSON. Returns none if invalid.
+fn resolve(gltf_json: json.Value, accessor_idx: Int) -> Option[AccessorInfo] = {
   let accessors = option.unwrap_or(json.get_array(gltf_json, "accessors"), [])
   let buffer_views = option.unwrap_or(json.get_array(gltf_json, "bufferViews"), [])
 
   match list.get(accessors, accessor_idx) {
-    none => [],
+    none => none,
     some(acc) => {
       let count = option.unwrap_or(json.get_int(acc, "count"), 0)
-      let comp_type = option.unwrap_or(json.get_int(acc, "componentType"), 0)
       let acc_type = option.unwrap_or(json.get_string(acc, "type"), "")
+      let comp_type = option.unwrap_or(json.get_int(acc, "componentType"), 5126)
       let bv_idx = option.unwrap_or(json.get_int(acc, "bufferView"), 0)
       let acc_offset = option.unwrap_or(json.get_int(acc, "byteOffset"), 0)
 
       let components = match acc_type {
-        "SCALAR" => 1,
-        "VEC2" => 2,
-        "VEC3" => 3,
-        "VEC4" => 4,
-        "MAT4" => 16,
-        _ => 1,
+        "SCALAR" => 1, "VEC2" => 2, "VEC3" => 3, "VEC4" => 4, "MAT4" => 16, _ => 1,
       }
+      let comp_size = if comp_type == 5123 then 2 else 4  // 5123=UNSIGNED_SHORT, 5126=FLOAT
 
       match list.get(buffer_views, bv_idx) {
-        none => [],
+        none => none,
         some(bv) => {
           let bv_offset = option.unwrap_or(json.get_int(bv, "byteOffset"), 0)
-          let base = bv_offset + acc_offset
-          let total = count * components
-
-          var result: List[Float] = []
-          var i = 0
-          while i < total {
-            let offset = base + i * 4
-            let f = bytes.read_f32_le(bin, offset)
-            result = result + [f]
-            i = i + 1
-          }
-          result
+          let bv_stride = option.unwrap_or(json.get_int(bv, "byteStride"), 0)
+          // If stride is 0, use tight packing: components * comp_size
+          let effective_stride = if bv_stride > 0 then bv_stride else components * comp_size
+          some(AccessorInfo {
+            base_offset: bv_offset + acc_offset,
+            count: count,
+            components: components,
+            comp_size: comp_size,
+            stride: effective_stride,
+          })
         },
       }
     },
   }
 }
 
-// Read a UInt16 index array from a glTF accessor.
-fn read_uint16_array(gltf_json: json.Value, bin: Bytes, accessor_idx: Int) -> List[Int] = {
-  let accessors = option.unwrap_or(json.get_array(gltf_json, "accessors"), [])
-  let buffer_views = option.unwrap_or(json.get_array(gltf_json, "bufferViews"), [])
-
-  match list.get(accessors, accessor_idx) {
-    none => [],
-    some(acc) => {
-      let count = option.unwrap_or(json.get_int(acc, "count"), 0)
-      let bv_idx = option.unwrap_or(json.get_int(acc, "bufferView"), 0)
-      let acc_offset = option.unwrap_or(json.get_int(acc, "byteOffset"), 0)
-
-      match list.get(buffer_views, bv_idx) {
-        none => [],
-        some(bv) => {
-          let bv_offset = option.unwrap_or(json.get_int(bv, "byteOffset"), 0)
-          let base = bv_offset + acc_offset
-
-          var result: List[Int] = []
-          var i = 0
-          while i < count {
-            let offset = base + i * 2
-            let v = bytes.read_u16_le(bin, offset)
-            result = result + [v]
-            i = i + 1
-          }
-          result
-        },
-      }
+// Slice float32 data directly from GLB binary. Zero-copy — returns a view.
+fn slice_f32(gltf_json: json.Value, bin: Bytes, accessor_idx: Int) -> Bytes = {
+  match resolve(gltf_json, accessor_idx) {
+    none => bytes.new(0),
+    some(info) => {
+      let byte_len = info.count * info.components * 4
+      bytes.slice(bin, info.base_offset, info.base_offset + byte_len)
     },
   }
 }
 
-test "read_float_array on empty returns empty" {
-  assert_eq(list.len(read_float_array(json.null(), bytes.new(0), 0)), 0)
+// Slice uint16 index data directly from GLB binary.
+fn slice_u16(gltf_json: json.Value, bin: Bytes, accessor_idx: Int) -> Bytes = {
+  match resolve(gltf_json, accessor_idx) {
+    none => bytes.new(0),
+    some(info) => {
+      let byte_len = info.count * 2
+      bytes.slice(bin, info.base_offset, info.base_offset + byte_len)
+    },
+  }
+}
+
+// Get the element count of an accessor without copying data.
+fn element_count(gltf_json: json.Value, accessor_idx: Int) -> Int =
+  match resolve(gltf_json, accessor_idx) {
+    none => 0,
+    some(info) => info.count,
+  }
+
+test "resolve on empty returns none" {
+  assert(option.is_none(resolve(json.null(), 0)))
 }

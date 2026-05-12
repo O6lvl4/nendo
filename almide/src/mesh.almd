@@ -1,7 +1,7 @@
-// glTF mesh → obsid vertex buffer conversion.
+// glTF mesh → obsid vertex buffers. Zero-copy from GLB binary.
 //
-// obsid vertex format: pos[3] f32 + norm[3] f32 + color[3] f32 = 36 bytes per vertex
-// obsid index format: u16
+// obsid vertex: pos[3] + norm[3] + color[3] + uv[2] = 11 floats = 44 bytes
+// obsid index: u16
 
 module mesh
 
@@ -10,114 +10,138 @@ import bytes
 import accessor
 
 type MeshData = {
-  vertices: Bytes,    // packed f32 array: [px,py,pz, nx,ny,nz, cr,cg,cb, ...]
-  indices: Bytes,     // packed u16 array
+  vertices: Bytes,
+  indices: Bytes,
   vert_count: Int,
   idx_count: Int,
 }
 
-// Convert the first primitive of a glTF mesh to obsid vertex data.
-fn from_gltf(gltf_json: json.Value, bin: Bytes, mesh_idx: Int) -> Result[MeshData, String] = {
+// Returns the primitives list for a mesh (caller iterates with build_primitive).
+fn get_primitives(gltf_json: json.Value, mesh_idx: Int) -> List[json.Value] = {
   let meshes = option.unwrap_or(json.get_array(gltf_json, "meshes"), [])
-  if list.len(meshes) <= mesh_idx then err("mesh index out of range")
+  if list.len(meshes) <= mesh_idx then []
   else {
-  let mesh_val = list.get_or(meshes, mesh_idx, json.null())
-  let primitives = option.unwrap_or(json.get_array(mesh_val, "primitives"), [])
-  if list.is_empty(primitives) then err("no primitives")
-  else {
-  let prim = list.get_or(primitives, 0, json.null())
-  let attrs = option.unwrap_or(json.get(prim, "attributes"), json.null())
-  let pos_idx = option.unwrap_or(json.get_int(attrs, "POSITION"), 0)
-  let positions = accessor.read_float_array(gltf_json, bin, pos_idx)
-
-  // Read NORMAL (optional — generate flat normals if missing)
-  let normals = match json.get_int(attrs, "NORMAL") {
-    some(i) => accessor.read_float_array(gltf_json, bin, i),
-    none => generate_flat_normals(list.len(positions) / 3),
+    let mesh_val = list.get_or(meshes, mesh_idx, json.null())
+    option.unwrap_or(json.get_array(mesh_val, "primitives"), [])
   }
+}
 
-  // Material base color (no UV — use as vertex color)
+fn build_primitive(gltf_json: json.Value, bin: Bytes, bin_offset: Int, prim: json.Value) -> Option[MeshData] = {
+  let attrs = option.unwrap_or(json.get(prim, "attributes"), json.null())
+  let pos_idx = option.unwrap_or(json.get_int(attrs, "POSITION"), -1)
+  if pos_idx < 0 then none
+  else {
+  let pos_info = accessor.resolve(gltf_json, pos_idx)
+  if option.is_none(pos_info) then none
+  else {
+  let pi = option.unwrap_or(pos_info, accessor.AccessorInfo { base_offset: 0, count: 0, components: 0, comp_size: 0, stride: 12 })
+  let vert_count = pi.count
+  let pos_stride = pi.stride
+
+  let has_normal = option.is_some(json.get_int(attrs, "NORMAL"))
+  let norm_idx = option.unwrap_or(json.get_int(attrs, "NORMAL"), -1)
+  let norm_info = if has_normal then accessor.resolve(gltf_json, norm_idx) else none
+  let ni_base = match norm_info { some(ni) => ni.base_offset, none => 0 }
+  let norm_stride = match norm_info { some(ni) => ni.stride, none => 12 }
+
+  // Material base color
   let mat_idx = option.unwrap_or(json.get_int(prim, "material"), -1)
-  let base_color = get_base_color(gltf_json, mat_idx)
+  let base_r = get_color_component(gltf_json, mat_idx, 0)
+  let base_g = get_color_component(gltf_json, mat_idx, 1)
+  let base_b = get_color_component(gltf_json, mat_idx, 2)
 
-  let vert_count = list.len(positions) / 3
-
-  // Pack into obsid vertex format: pos[3] + norm[3] + color[3] = 9 floats per vertex
-  let verts = bytes.new(0)
+  let out_stride = 44
+  let verts = bytes.new(vert_count * out_stride)
   var i = 0
   while i < vert_count {
-    let pi = i * 3
-    // Position
-    bytes.append_f32_le(verts, list.get_or(positions, pi, 0.0))
-    bytes.append_f32_le(verts, list.get_or(positions, pi + 1, 0.0))
-    bytes.append_f32_le(verts, list.get_or(positions, pi + 2, 0.0))
-    // Normal
-    bytes.append_f32_le(verts, list.get_or(normals, pi, 0.0))
-    bytes.append_f32_le(verts, list.get_or(normals, pi + 1, 0.0))
-    bytes.append_f32_le(verts, list.get_or(normals, pi + 2, 1.0))
-    // Color (material base color)
-    bytes.append_f32_le(verts, list.get_or(base_color, 0, 0.8))
-    bytes.append_f32_le(verts, list.get_or(base_color, 1, 0.8))
-    bytes.append_f32_le(verts, list.get_or(base_color, 2, 0.8))
-    // UV (dummy — obsid expects 11 floats per vertex)
-    bytes.append_f32_le(verts, 0.0)
-    bytes.append_f32_le(verts, 0.0)
+    let dst = i * out_stride
+    bytes.copy_from(verts, bin, dst, bin_offset + pi.base_offset + i * pos_stride, 12)
+
+    if has_normal then {
+      bytes.copy_from(verts, bin, dst + 12, bin_offset + ni_base + i * norm_stride, 12)
+    } else {
+      bytes.set_f32_le(verts, dst + 12, 0.0)
+      bytes.set_f32_le(verts, dst + 16, 1.0)
+      bytes.set_f32_le(verts, dst + 20, 0.0)
+    }
+
+    bytes.set_f32_le(verts, dst + 24, base_r)
+    bytes.set_f32_le(verts, dst + 28, base_g)
+    bytes.set_f32_le(verts, dst + 32, base_b)
+    bytes.set_f32_le(verts, dst + 36, 0.0)
+    bytes.set_f32_le(verts, dst + 40, 0.0)
     i = i + 1
   }
 
-  // Read indices
-  let idx_data = bytes.new(0)
-  let idx_count = match json.get_int(prim, "indices") {
-    some(idx_acc) => {
-      let indices = accessor.read_uint16_array(gltf_json, bin, idx_acc)
-      var j = 0
-      while j < list.len(indices) {
-        bytes.append_u16_le(idx_data, list.get_or(indices, j, 0))
-        j = j + 1
+  // Indices — obsid expects u16, glTF may use u16(5123) or u32(5125)
+  let idx_acc = option.unwrap_or(json.get_int(prim, "indices"), -1)
+  let idx_info = if idx_acc >= 0 then accessor.resolve(gltf_json, idx_acc) else none
+  let idx_count = match idx_info { some(ii) => ii.count, none => 0 }
+  let idx_data = bytes.new(idx_count * 2)
+  match idx_info {
+    some(ii) => {
+      if ii.comp_size == 2 then {
+        bytes.copy_from(idx_data, bin, 0, bin_offset + ii.base_offset, idx_count * 2)
+      } else {
+        var j = 0
+        while j < idx_count {
+          let val = bytes.read_u32_le(bin, bin_offset + ii.base_offset + j * 4)
+          bytes.set_u16_le(idx_data, j * 2, val)
+          j = j + 1
+        }
       }
-      list.len(indices)
     },
-    none => 0,
+    none => {},
   }
 
-  ok(MeshData {
-    vertices: verts,
-    indices: idx_data,
-    vert_count: vert_count,
-    idx_count: idx_count,
-  })
-  } // else (primitives)
-  } // else (meshes)
-}
-
-fn generate_flat_normals(count: Int) -> List[Float] = {
-  var result: List[Float] = []
-  var i = 0
-  while i < count {
-    result = result + [0.0, 1.0, 0.0]
-    i = i + 1
+  some(MeshData { vertices: verts, indices: idx_data, vert_count: vert_count, idx_count: idx_count })
   }
-  result
+  }
 }
 
-fn get_base_color(gltf_json: json.Value, mat_idx: Int) -> List[Float] = {
-  if mat_idx < 0 then [0.8, 0.8, 0.8]
+fn get_color_component(gltf_json: json.Value, mat_idx: Int, idx: Int) -> Float = {
+  if mat_idx < 0 then 0.8
   else {
-    let materials = option.unwrap_or(json.get_array(gltf_json, "materials"), [])
-    match list.get(materials, mat_idx) {
-      none => [0.8, 0.8, 0.8],
-      some(mat) => match json.get(mat, "pbrMetallicRoughness") {
-        none => [0.8, 0.8, 0.8],
-        some(pbr) => match json.get_array(pbr, "baseColorFactor") {
-          none => [0.8, 0.8, 0.8],
-          some(arr) => {
-            let r = option.unwrap_or(json.as_float(list.get_or(arr, 0, json.from_float(0.8))), 0.8)
-            let g = option.unwrap_or(json.as_float(list.get_or(arr, 1, json.from_float(0.8))), 0.8)
-            let b = option.unwrap_or(json.as_float(list.get_or(arr, 2, json.from_float(0.8))), 0.8)
-            [r, g, b]
+    // Try VRM 0.x MToon _Color first
+    let vrm_color = get_vrm0_color(gltf_json, mat_idx, idx)
+    if vrm_color >= 0.0 then vrm_color
+    else {
+      // Fallback to PBR baseColorFactor
+      let materials = option.unwrap_or(json.get_array(gltf_json, "materials"), [])
+      match list.get(materials, mat_idx) {
+        none => 0.8,
+        some(mat) => match json.get(mat, "pbrMetallicRoughness") {
+          none => 0.8,
+          some(pbr) => match json.get_array(pbr, "baseColorFactor") {
+            none => 0.8,
+            some(arr) => option.unwrap_or(json.as_float(list.get_or(arr, idx, json.from_float(0.8))), 0.8),
+          },
+        },
+      }
+    }
+  }
+}
+
+// VRM 0.x: extensions.VRM.materialProperties[mat_idx].vectorProperties._Color[idx]
+// Returns -1.0 if not found.
+fn get_vrm0_color(gltf_json: json.Value, mat_idx: Int, idx: Int) -> Float = {
+  match json.get(gltf_json, "extensions") {
+    none => -1.0,
+    some(ext) => match json.get(ext, "VRM") {
+      none => -1.0,
+      some(vrm) => match json.get_array(vrm, "materialProperties") {
+        none => -1.0,
+        some(props) => match list.get(props, mat_idx) {
+          none => -1.0,
+          some(prop) => match json.get(prop, "vectorProperties") {
+            none => -1.0,
+            some(vp) => match json.get_array(vp, "_Color") {
+              none => -1.0,
+              some(arr) => option.unwrap_or(json.as_float(list.get_or(arr, idx, json.from_float(-1.0))), -1.0),
+            },
           },
         },
       },
-    }
+    },
   }
 }
