@@ -44,6 +44,12 @@ fn build_primitive(gltf_json: json.Value, bin: Bytes, bin_offset: Int, prim: jso
   let ni_base = match norm_info { some(ni) => ni.base_offset, none => 0 }
   let norm_stride = match norm_info { some(ni) => ni.stride, none => 12 }
 
+  let has_uv = option.is_some(json.get_int(attrs, "TEXCOORD_0"))
+  let uv_idx = option.unwrap_or(json.get_int(attrs, "TEXCOORD_0"), -1)
+  let uv_info = if has_uv then accessor.resolve(gltf_json, uv_idx) else none
+  let uv_base = match uv_info { some(ui) => ui.base_offset, none => 0 }
+  let uv_stride = match uv_info { some(ui) => ui.stride, none => 8 }
+
   // Material base color
   let mat_idx = option.unwrap_or(json.get_int(prim, "material"), -1)
   let base_r = get_color_component(gltf_json, mat_idx, 0)
@@ -68,8 +74,13 @@ fn build_primitive(gltf_json: json.Value, bin: Bytes, bin_offset: Int, prim: jso
     bytes.set_f32_le(verts, dst + 24, base_r)
     bytes.set_f32_le(verts, dst + 28, base_g)
     bytes.set_f32_le(verts, dst + 32, base_b)
-    bytes.set_f32_le(verts, dst + 36, 0.0)
-    bytes.set_f32_le(verts, dst + 40, 0.0)
+    // UV: copy from TEXCOORD_0 or write (0,0)
+    if has_uv then {
+      bytes.copy_from(verts, bin, dst + 36, bin_offset + uv_base + i * uv_stride, 8)
+    } else {
+      bytes.set_f32_le(verts, dst + 36, 0.0)
+      bytes.set_f32_le(verts, dst + 40, 0.0)
+    }
     i = i + 1
   }
 

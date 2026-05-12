@@ -46,8 +46,32 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
     }
     if n_meshes == 0 then 0
     else {
-      // Arena checkpoint: JSON tree + raw data persist below this point.
       let arena = bytes.heap_save()
+
+      // ── Upload images as textures ──
+      let images = option.unwrap_or(json.get_array(gltf, "images"), [])
+      let buffer_views = option.unwrap_or(json.get_array(gltf, "bufferViews"), [])
+      var img_id = 0
+      while img_id < list.len(images) {
+        let img = list.get_or(images, img_id, json.null())
+        let bv_idx = option.unwrap_or(json.get_int(img, "bufferView"), -1)
+        if bv_idx >= 0 then {
+          match list.get(buffer_views, bv_idx) {
+            some(bv) => {
+              let bv_off = option.unwrap_or(json.get_int(bv, "byteOffset"), 0)
+              let bv_len = option.unwrap_or(json.get_int(bv, "byteLength"), 0)
+              // Pass raw PNG/JPEG bytes to obsid — JS host decodes async
+              obsid.upload_texture_raw(img_id, bytes.data_ptr(data) + bin_off + bv_off, bv_len)
+            },
+            none => {},
+          }
+        } else {}
+        img_id = img_id + 1
+      }
+
+      // ── Upload meshes ──
+      let textures = option.unwrap_or(json.get_array(gltf, "textures"), [])
+      let materials = option.unwrap_or(json.get_array(gltf, "materials"), [])
       var obsid_id = 0
       var mesh_id = 0
       while mesh_id < n_meshes {
@@ -55,13 +79,37 @@ pub effect fn load_vrm_data(data: Bytes) -> Int = {
         let n_prims = list.len(prims)
         var pi = 0
         while pi < n_prims {
-          // Per-primitive arena: build → upload → free
           let cp = bytes.heap_save()
           let prim = list.get_or(prims, pi, json.null())
           match mesh.build_primitive(gltf, data, bin_off, prim) {
             some(m) => {
               obsid.create_mesh(obsid_id)
               obsid.upload_mesh(obsid_id, bytes.data_ptr(m.vertices), m.vert_count, bytes.data_ptr(m.indices), m.idx_count)
+              // Bind texture: prim.material → material.baseColorTexture.index → texture.source
+              let mat_i = option.unwrap_or(json.get_int(prim, "material"), -1)
+              if mat_i >= 0 then {
+                match list.get(materials, mat_i) {
+                  some(mat) => match json.get(mat, "pbrMetallicRoughness") {
+                    some(pbr) => match json.get(pbr, "baseColorTexture") {
+                      some(bct) => {
+                        let tex_idx = option.unwrap_or(json.get_int(bct, "index"), -1)
+                        if tex_idx >= 0 then {
+                          match list.get(textures, tex_idx) {
+                            some(tex) => {
+                              let src = option.unwrap_or(json.get_int(tex, "source"), -1)
+                              if src >= 0 then obsid.set_mesh_texture(obsid_id, src) else {}
+                            },
+                            none => {},
+                          }
+                        } else {}
+                      },
+                      none => {},
+                    },
+                    none => {},
+                  },
+                  none => {},
+                }
+              } else {}
               obsid_id = obsid_id + 1
             },
             none => {},
