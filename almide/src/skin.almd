@@ -279,8 +279,15 @@ fn apply_skinning(verts: Bytes, vert_count: Int, out_stride: Int, joint_matrices
 
     // Column-major mat4: col0=[0,4,8,12] col1=[16,20,24,28] col2=[32,36,40,44] col3=[48,52,56,60]
     // Transform point: rx = m00*px + m01*py + m02*pz + m03 (byte offsets: 0,16,32,48 for row 0)
+    // Clamp joint indices to valid range (JOINTS_0 values can exceed joint count)
+    let n_jm = bytes.len(joint_matrices) / 64
+    let cj0 = if j0 >= 0 and j0 < n_jm then j0 else 0
+    let cj1 = if j1 >= 0 and j1 < n_jm then j1 else 0
+    let cj2 = if j2 >= 0 and j2 < n_jm then j2 else 0
+    let cj3 = if j3 >= 0 and j3 < n_jm then j3 else 0
+
     if w0 > 0.0 then {
-      let mo = j0 * 64
+      let mo = cj0 * 64
       sx = sx + w0 * (mat4_get(joint_matrices, mo) * px + mat4_get(joint_matrices, mo + 16) * py + mat4_get(joint_matrices, mo + 32) * pz + mat4_get(joint_matrices, mo + 48))
       sy = sy + w0 * (mat4_get(joint_matrices, mo + 4) * px + mat4_get(joint_matrices, mo + 20) * py + mat4_get(joint_matrices, mo + 36) * pz + mat4_get(joint_matrices, mo + 52))
       sz = sz + w0 * (mat4_get(joint_matrices, mo + 8) * px + mat4_get(joint_matrices, mo + 24) * py + mat4_get(joint_matrices, mo + 40) * pz + mat4_get(joint_matrices, mo + 56))
@@ -289,7 +296,7 @@ fn apply_skinning(verts: Bytes, vert_count: Int, out_stride: Int, joint_matrices
       snz = snz + w0 * (mat4_get(joint_matrices, mo + 8) * nx + mat4_get(joint_matrices, mo + 24) * ny + mat4_get(joint_matrices, mo + 40) * nz)
     } else {}
     if w1 > 0.0 then {
-      let mo = j1 * 64
+      let mo = cj1 * 64
       sx = sx + w1 * (mat4_get(joint_matrices, mo) * px + mat4_get(joint_matrices, mo + 16) * py + mat4_get(joint_matrices, mo + 32) * pz + mat4_get(joint_matrices, mo + 48))
       sy = sy + w1 * (mat4_get(joint_matrices, mo + 4) * px + mat4_get(joint_matrices, mo + 20) * py + mat4_get(joint_matrices, mo + 36) * pz + mat4_get(joint_matrices, mo + 52))
       sz = sz + w1 * (mat4_get(joint_matrices, mo + 8) * px + mat4_get(joint_matrices, mo + 24) * py + mat4_get(joint_matrices, mo + 40) * pz + mat4_get(joint_matrices, mo + 56))
@@ -298,7 +305,7 @@ fn apply_skinning(verts: Bytes, vert_count: Int, out_stride: Int, joint_matrices
       snz = snz + w1 * (mat4_get(joint_matrices, mo + 8) * nx + mat4_get(joint_matrices, mo + 24) * ny + mat4_get(joint_matrices, mo + 40) * nz)
     } else {}
     if w2 > 0.0 then {
-      let mo = j2 * 64
+      let mo = cj2 * 64
       sx = sx + w2 * (mat4_get(joint_matrices, mo) * px + mat4_get(joint_matrices, mo + 16) * py + mat4_get(joint_matrices, mo + 32) * pz + mat4_get(joint_matrices, mo + 48))
       sy = sy + w2 * (mat4_get(joint_matrices, mo + 4) * px + mat4_get(joint_matrices, mo + 20) * py + mat4_get(joint_matrices, mo + 36) * pz + mat4_get(joint_matrices, mo + 52))
       sz = sz + w2 * (mat4_get(joint_matrices, mo + 8) * px + mat4_get(joint_matrices, mo + 24) * py + mat4_get(joint_matrices, mo + 40) * pz + mat4_get(joint_matrices, mo + 56))
@@ -307,7 +314,7 @@ fn apply_skinning(verts: Bytes, vert_count: Int, out_stride: Int, joint_matrices
       snz = snz + w2 * (mat4_get(joint_matrices, mo + 8) * nx + mat4_get(joint_matrices, mo + 24) * ny + mat4_get(joint_matrices, mo + 40) * nz)
     } else {}
     if w3 > 0.0 then {
-      let mo = j3 * 64
+      let mo = cj3 * 64
       sx = sx + w3 * (mat4_get(joint_matrices, mo) * px + mat4_get(joint_matrices, mo + 16) * py + mat4_get(joint_matrices, mo + 32) * pz + mat4_get(joint_matrices, mo + 48))
       sy = sy + w3 * (mat4_get(joint_matrices, mo + 4) * px + mat4_get(joint_matrices, mo + 20) * py + mat4_get(joint_matrices, mo + 36) * pz + mat4_get(joint_matrices, mo + 52))
       sz = sz + w3 * (mat4_get(joint_matrices, mo + 8) * px + mat4_get(joint_matrices, mo + 24) * py + mat4_get(joint_matrices, mo + 40) * pz + mat4_get(joint_matrices, mo + 56))
@@ -316,44 +323,16 @@ fn apply_skinning(verts: Bytes, vert_count: Int, out_stride: Int, joint_matrices
       snz = snz + w3 * (mat4_get(joint_matrices, mo + 8) * nx + mat4_get(joint_matrices, mo + 24) * ny + mat4_get(joint_matrices, mo + 40) * nz)
     } else {}
 
-    // Unconditional blending — no if/else on weights (avoids WASM var-in-if codegen issues)
-    let n_jm = bytes.len(joint_matrices) / 64
-    let cj0 = if j0 >= 0 and j0 < n_jm then j0 else 0
-    let cj1 = if j1 >= 0 and j1 < n_jm then j1 else 0
-    let cj2 = if j2 >= 0 and j2 < n_jm then j2 else 0
-    let cj3 = if j3 >= 0 and j3 < n_jm then j3 else 0
+    bytes.set_f32_le(verts, dst, sx)
+    bytes.set_f32_le(verts, dst + 4, sy)
+    bytes.set_f32_le(verts, dst + 8, sz)
+    bytes.set_f32_le(verts, dst + 12, snx)
+    bytes.set_f32_le(verts, dst + 16, sny)
+    bytes.set_f32_le(verts, dst + 20, snz)
 
-    let m0 = cj0 * 64
-    let m1 = cj1 * 64
-    let m2 = cj2 * 64
-    let m3 = cj3 * 64
-
-    let tx0 = mat4_get(joint_matrices, m0) * px + mat4_get(joint_matrices, m0 + 16) * py + mat4_get(joint_matrices, m0 + 32) * pz + mat4_get(joint_matrices, m0 + 48)
-    let ty0 = mat4_get(joint_matrices, m0 + 4) * px + mat4_get(joint_matrices, m0 + 20) * py + mat4_get(joint_matrices, m0 + 36) * pz + mat4_get(joint_matrices, m0 + 52)
-    let tz0 = mat4_get(joint_matrices, m0 + 8) * px + mat4_get(joint_matrices, m0 + 24) * py + mat4_get(joint_matrices, m0 + 40) * pz + mat4_get(joint_matrices, m0 + 56)
-
-    let tx1 = mat4_get(joint_matrices, m1) * px + mat4_get(joint_matrices, m1 + 16) * py + mat4_get(joint_matrices, m1 + 32) * pz + mat4_get(joint_matrices, m1 + 48)
-    let ty1 = mat4_get(joint_matrices, m1 + 4) * px + mat4_get(joint_matrices, m1 + 20) * py + mat4_get(joint_matrices, m1 + 36) * pz + mat4_get(joint_matrices, m1 + 52)
-    let tz1 = mat4_get(joint_matrices, m1 + 8) * px + mat4_get(joint_matrices, m1 + 24) * py + mat4_get(joint_matrices, m1 + 40) * pz + mat4_get(joint_matrices, m1 + 56)
-
-    let tx2 = mat4_get(joint_matrices, m2) * px + mat4_get(joint_matrices, m2 + 16) * py + mat4_get(joint_matrices, m2 + 32) * pz + mat4_get(joint_matrices, m2 + 48)
-    let ty2 = mat4_get(joint_matrices, m2 + 4) * px + mat4_get(joint_matrices, m2 + 20) * py + mat4_get(joint_matrices, m2 + 36) * pz + mat4_get(joint_matrices, m2 + 52)
-    let tz2 = mat4_get(joint_matrices, m2 + 8) * px + mat4_get(joint_matrices, m2 + 24) * py + mat4_get(joint_matrices, m2 + 40) * pz + mat4_get(joint_matrices, m2 + 56)
-
-    let tx3 = mat4_get(joint_matrices, m3) * px + mat4_get(joint_matrices, m3 + 16) * py + mat4_get(joint_matrices, m3 + 32) * pz + mat4_get(joint_matrices, m3 + 48)
-    let ty3 = mat4_get(joint_matrices, m3 + 4) * px + mat4_get(joint_matrices, m3 + 20) * py + mat4_get(joint_matrices, m3 + 36) * pz + mat4_get(joint_matrices, m3 + 52)
-    let tz3 = mat4_get(joint_matrices, m3 + 8) * px + mat4_get(joint_matrices, m3 + 24) * py + mat4_get(joint_matrices, m3 + 40) * pz + mat4_get(joint_matrices, m3 + 56)
-
-    bytes.set_f32_le(verts, dst, w0 * tx0 + w1 * tx1 + w2 * tx2 + w3 * tx3)
-    bytes.set_f32_le(verts, dst + 4, w0 * ty0 + w1 * ty1 + w2 * ty2 + w3 * ty3)
-    bytes.set_f32_le(verts, dst + 8, w0 * tz0 + w1 * tz1 + w2 * tz2 + w3 * tz3)
-    // Normal: same transform without translation
-    let nx0 = mat4_get(joint_matrices, m0) * nx + mat4_get(joint_matrices, m0 + 16) * ny + mat4_get(joint_matrices, m0 + 32) * nz
-    let ny0 = mat4_get(joint_matrices, m0 + 4) * nx + mat4_get(joint_matrices, m0 + 20) * ny + mat4_get(joint_matrices, m0 + 36) * nz
-    let nz0 = mat4_get(joint_matrices, m0 + 8) * nx + mat4_get(joint_matrices, m0 + 24) * ny + mat4_get(joint_matrices, m0 + 40) * nz
-    bytes.set_f32_le(verts, dst + 12, w0 * nx0 + w1 * nx0 + w2 * nx0 + w3 * nx0)
-    bytes.set_f32_le(verts, dst + 16, w0 * ny0 + w1 * ny0 + w2 * ny0 + w3 * ny0)
-    bytes.set_f32_le(verts, dst + 20, w0 * nz0 + w1 * nz0 + w2 * nz0 + w3 * nz0)
+    bytes.set_f32_le(verts, dst, sx)
+    bytes.set_f32_le(verts, dst + 4, py * (w0 + w1 + w2 + w3))
+    bytes.set_f32_le(verts, dst + 8, pz * (w0 + w1 + w2 + w3))
 
     i = i + 1
   }
