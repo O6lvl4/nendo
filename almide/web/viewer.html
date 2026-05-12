@@ -62,47 +62,74 @@
     const statsEl = document.getElementById("stats");
     const infoEl = document.getElementById("info");
 
-    let wasmInstance = null;
+    let wasmExports = null;
     let wasmMemory = null;
+    let obsidReady = false;
 
-    // ── WASM Loading ──
+    // ── WASM Loading via Obsid ──
 
-    async function initWasm() {
+    async function initObsid() {
+      if (obsidReady) return;
       const dpr = window.devicePixelRatio || 1;
       canvas.width = window.innerWidth * dpr;
       canvas.height = window.innerHeight * dpr;
+      canvas.classList.remove("hidden");
 
-      // Load nendo.wasm with obsid imports
-      const result = await Obsid.loadRaw("nendo.wasm", "canvas", "high");
-      wasmInstance = result.instance;
-      wasmMemory = result.memory;
+      // Obsid.load handles WebGL init + WASM imports + instantiation
+      await Obsid.load("nendo.wasm", "canvas", "high");
+
+      // After load, Obsid stores the instance internally.
+      // We access exports via Obsid's stored reference.
+      wasmExports = Obsid._instance?.exports;
+      wasmMemory = Obsid._memory || wasmExports?.memory;
+      obsidReady = true;
     }
 
     // ── VRM Loading ──
 
     async function loadVRM(arrayBuffer) {
-      if (!wasmInstance) await initWasm();
+      try {
+        await initObsid();
+      } catch(e) {
+        infoEl.textContent = `Init error: ${e.message}`;
+        return;
+      }
+
+      if (!wasmExports) {
+        infoEl.textContent = "WASM not loaded";
+        return;
+      }
 
       const data = new Uint8Array(arrayBuffer);
-      const exports = wasmInstance.exports;
-      const memory = wasmMemory || exports.memory;
+      const memory = wasmMemory;
 
       // Allocate WASM memory and copy file data
-      const ptr = exports.alloc(data.length);
+      const alloc = wasmExports.alloc;
+      if (!alloc) {
+        infoEl.textContent = "No alloc export in WASM";
+        return;
+      }
+      const ptr = alloc(data.length);
       const view = new Uint8Array(memory.buffer, ptr, data.length);
       view.set(data);
 
       // Call nendo WASM: load_vrm_3d(ptr, len) → json string ptr
-      const resultPtr = exports.load_vrm_3d(ptr, data.length);
+      const fn = wasmExports.load_vrm_3d;
+      if (!fn) {
+        infoEl.textContent = "No load_vrm_3d export";
+        return;
+      }
+      const resultPtr = fn(ptr, data.length);
       const resultStr = readWasmString(memory, resultPtr);
-      const result = JSON.parse(resultStr);
+
+      let result;
+      try { result = JSON.parse(resultStr); } catch { result = { ok: false, error: resultStr }; }
 
       if (result.ok) {
         infoEl.textContent = `nendo — ${result.meshes} mesh(es) loaded`;
         dropzone.classList.add("hidden");
-        canvas.classList.remove("hidden");
         statsEl.classList.remove("hidden");
-        startRenderLoop(exports);
+        startRenderLoop();
       } else {
         infoEl.textContent = `Error: ${result.error}`;
       }
@@ -110,7 +137,7 @@
 
     function readWasmString(memory, ptr) {
       const view = new Uint8Array(memory.buffer);
-      // almide strings: [i32 len][bytes...]
+      // almide WASM strings: [i32 len][bytes...]
       const len = new DataView(memory.buffer).getInt32(ptr, true);
       const bytes = view.slice(ptr + 4, ptr + 4 + len);
       return new TextDecoder().decode(bytes);
@@ -119,13 +146,13 @@
     // ── Render Loop ──
 
     let rendering = false;
-    function startRenderLoop(exports) {
+    function startRenderLoop() {
       if (rendering) return;
       rendering = true;
 
       let frames = 0, lastTime = performance.now();
       function loop() {
-        exports.render_frame();
+        if (wasmExports.render_frame) wasmExports.render_frame();
 
         frames++;
         const now = performance.now();
@@ -141,17 +168,17 @@
 
       // Pointer events → WASM orbit camera
       canvas.addEventListener("pointerdown", e => {
-        exports.on_pointer_down(e.clientX, e.clientY);
+        wasmExports.on_pointer_down?.(e.clientX, e.clientY);
       });
       canvas.addEventListener("pointerup", () => {
-        exports.on_pointer_up();
+        wasmExports.on_pointer_up?.();
       });
       canvas.addEventListener("pointermove", e => {
-        exports.on_pointer_move(e.clientX, e.clientY);
+        wasmExports.on_pointer_move?.(e.clientX, e.clientY);
       });
       canvas.addEventListener("wheel", e => {
         e.preventDefault();
-        exports.on_wheel(e.deltaY);
+        wasmExports.on_wheel?.(e.deltaY);
       }, { passive: false });
     }
 

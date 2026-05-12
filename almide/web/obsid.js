@@ -582,6 +582,9 @@ const Obsid = {
     }
     memory = instance.exports.memory;
     instanceRef = instance;
+    // Expose for external access (nendo viewer needs exports)
+    Obsid._instance = instance;
+    Obsid._memory = memory;
 
     // Diagnostics go to console (Safari Web Inspector over USB handles mobile).
     // The red overlay stays reserved for real errors so users don't mistake
