@@ -103,23 +103,27 @@
       const data = new Uint8Array(arrayBuffer);
       const memory = wasmMemory;
 
-      // Allocate WASM memory and copy file data
-      const alloc = wasmExports.alloc;
-      if (!alloc) {
-        infoEl.textContent = "No alloc export in WASM";
-        return;
+      // Write file data into WASM memory.
+      // almide WASM Bytes layout: [i32 len][bytes...]
+      // We write at a high offset to avoid stomping the heap.
+      const basePtr = 1024 * 1024; // 1MB offset (safe for most programs)
+      const needed = basePtr + 4 + data.length;
+      const pages = Math.ceil(needed / 65536);
+      if (memory.buffer.byteLength < needed) {
+        memory.grow(pages - memory.buffer.byteLength / 65536 + 1);
       }
-      const ptr = alloc(data.length);
-      const view = new Uint8Array(memory.buffer, ptr, data.length);
-      view.set(data);
+      const dv = new DataView(memory.buffer);
+      dv.setInt32(basePtr, data.length, true); // len
+      new Uint8Array(memory.buffer, basePtr + 4, data.length).set(data); // bytes
 
-      // Call nendo WASM: load_vrm_3d(ptr, len) → json string ptr
-      const fn = wasmExports.load_vrm_3d;
-      if (!fn) {
+      // Call nendo WASM: load_vrm_3d(ptr) → json string ptr
+      // almide passes Bytes as i32 pointer to [len][data...]
+      const loadFn = wasmExports.load_vrm_3d;
+      if (!loadFn) {
         infoEl.textContent = "No load_vrm_3d export";
         return;
       }
-      const resultPtr = fn(ptr, data.length);
+      const resultPtr = loadFn(basePtr);
       const resultStr = readWasmString(memory, resultPtr);
 
       let result;
