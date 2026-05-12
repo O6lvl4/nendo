@@ -1,0 +1,55 @@
+// Viewer entry point — obsid demo compatible (_start + render_frame)
+
+import obsid
+import bytes
+
+effect fn main() -> Unit = {
+  // Create a colored triangle
+  obsid.create_mesh(0)
+  let verts = bytes.new(0)
+  // v0: pos(0,0,0) norm(0,0,1) color(1,0,0) uv(0,0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0)
+  bytes.append_f32_le(verts, 1.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
+  // v1: pos(1,0,0) color(0,1,0)
+  bytes.append_f32_le(verts, 1.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0); bytes.append_f32_le(verts, 0.0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
+  // v2: pos(0.5,1,0) color(0,0,1)
+  bytes.append_f32_le(verts, 0.5); bytes.append_f32_le(verts, 1.0); bytes.append_f32_le(verts, 0.0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 1.0)
+  bytes.append_f32_le(verts, 0.0); bytes.append_f32_le(verts, 0.0)
+
+  let idx = bytes.new(0)
+  bytes.append_u16_le(idx, 0); bytes.append_u16_le(idx, 1); bytes.append_u16_le(idx, 2)
+
+  obsid.upload_mesh(0, bytes.data_ptr(verts), 3, bytes.data_ptr(idx), 3)
+
+  // Camera looking at origin
+  obsid.orbit_init(0.5, 0.5, 0.0, 0.0, 0.3, 3.0, 0.5, 20.0)
+
+  // Lighting
+  obsid.set_dir_light(1.0, 1.0, 1.0, -0.5, -1.0, -0.3)
+  obsid.set_ambient(0.4, 0.4, 0.4)
+}
+
+pub effect fn render_frame(t: Float) -> Unit = {
+  let aspect = obsid.get_aspect()
+  obsid.orbit_apply(45.0, aspect, 0.01, 100.0)
+  obsid.render()
+}
+
+pub effect fn on_pointer_down(x: Float, y: Float, button: Int) -> Unit =
+  obsid.orbit_on_pointer_down(x, y)
+
+pub effect fn on_pointer_up(x: Float, y: Float, button: Int) -> Unit =
+  obsid.orbit_on_pointer_up()
+
+pub effect fn on_pointer_move(x: Float, y: Float) -> Unit =
+  obsid.orbit_on_pointer_move(x, y)
+
+pub effect fn on_wheel(delta: Float) -> Unit =
+  obsid.orbit_on_wheel(delta)
